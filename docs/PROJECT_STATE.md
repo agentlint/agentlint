@@ -7,14 +7,14 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-09 by Claude Code (v1.0.0 release session)
+**Last updated:** 2026-05-10 by Claude Code (community files + launch-asset specs)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `f01311c` — `chore(release): rename npm scope to @agentlinthq` |
+| Latest commit | `8975372` — `docs: refresh PROJECT_STATE after v1.0.0 publish + GitHub config` |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
 | Tests | 17 passing (3 core + 14 CLI) |
 | Lint | clean (Biome) |
@@ -24,11 +24,36 @@
 | npm package | ✅ published — [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
 | GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | GitHub repo settings | ✅ description, topics (13), Discussions enabled, branch protection on `main` (CI required, linear history, no force-push) |
-| Domain | **not registered yet** — `agentlint.dev` planned |
-| Landing page | not built |
+| Domain | ✅ `agentlint.sh` registered via Cloudflare; DNS not yet pointed |
+| Landing page | spec drafted at `docs/marketing/landing-page.md`; not built |
+| Leaderboard | spec drafted at `docs/marketing/leaderboard.md`; not built |
+| Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` |
 
 ## Done — recent
 
+- Domain `agentlint.sh` purchased on Cloudflare. DNS pending — needs two
+  records pointed at Vercel (`A`/`CNAME` apex + `CNAME www`) once the
+  Vercel project for the landing page is provisioned.
+- `CONTRIBUTING.md` written: TL;DR, setup, contribution kinds, what's not
+  welcome, conventions, PR workflow, RFC process for new rules, bug
+  report template, security disclosure pointer.
+- `CODE_OF_CONDUCT.md` adopted Contributor Covenant 2.1 by reference;
+  added project-specific reporting and enforcement extensions.
+- Verified `agentlint --version` already ships in v1.0.0 (line 19, 36–39
+  of `packages/cli/src/index.ts`). No fix needed; `CONTRIBUTING.md`
+  cleaned to drop the stale "until that lands" note.
+- Both package.jsons (`@agentlinthq/cli`, `@agentlinthq/core`) now point
+  `homepage` at `https://agentlint.sh`.
+- Landing page content brief written at
+  [`docs/marketing/landing-page.md`](./marketing/landing-page.md):
+  hero, three value props, why-this-exists, how-it-scores table,
+  how-it's-built differentiator, hosted teaser, footer, SEO/GEO with
+  schema.org JSON-LD, tech stack, definition-of-done.
+- Leaderboard launch-asset spec written at
+  [`docs/marketing/leaderboard.md`](./marketing/leaderboard.md): scope,
+  pipeline (`fetch-repos` → `clone-and-scan` → `aggregate` → `render`),
+  rate-limit hygiene, page design, methodology and anti-gaming clauses,
+  blog post outline, schedule, definition-of-done.
 - Repository scaffolded: `packages/core` (pure types + score) and
   `packages/cli` (rules, scan-context, reporters).
 - 30 rules implemented across 5 categories (discoverability, buildability,
@@ -72,11 +97,11 @@ walk it top to bottom unless the human redirects.
    `@agentlinthq/cli` and `@agentlinthq/core` on 2026-05-09. The
    unscoped `agentlint` and `agentlint` org name were unavailable —
    pivoted to `agentlinthq` org. See ADR-0011.
-2. **Buy domain.** Original target `agentlint.dev` is taken; pivot to
-   `agentlint.sh` (recommended — devs read `.sh` as "real CLI";
-   precedent: `vercel.sh`). Backups: `agentlint.run`, `useagentlint.com`.
-   ~$15–40/yr at Cloudflare Registrar or Porkbun. **Blocker: human
-   purchase.**
+2. ~~**Buy domain.**~~ ✅ Done. `agentlint.sh` registered on Cloudflare
+   on 2026-05-10. DNS still needs to be pointed once the Vercel
+   project for the landing page is created. **Action item for human:**
+   update the GitHub repo "Website" field to `https://agentlint.sh`
+   via the UI (the previous PAT was revoked).
 3. ~~**Configure GitHub repo settings.**~~ ✅ Done. Description, 13
    topics, Discussions enabled, branch protection on `main` requiring
    CI passing, linear history enforced, no force-push, no deletions.
@@ -85,19 +110,21 @@ walk it top to bottom unless the human redirects.
 
 ### P1 — pre-1.0 polish
 
-4. **Landing page** at `agentlint.dev`. Single-page Next.js: hero
-   (`npx @agentlinthq/cli`), three value props, terminal demo, pricing teaser,
-   footer. Hosted on Vercel. New repo `agentlint/agentlint.dev`. Agent
-   builds; human approves copy and provisions Vercel project.
-5. **Leaderboard launch asset.** Script that scans top-1000 GitHub repos by
-   stars, generates a "State of agent-readiness" blog post with a sortable
-   HTML leaderboard. SEO/GEO bait for launch. Needs a read-only public
-   GitHub token.
-6. **CONTRIBUTING.md** that explicitly invites both human and agent
-   contributors and explains how to propose a new rule.
-7. **CODE_OF_CONDUCT.md** (Contributor Covenant 2.1).
-8. **`agentlint --version`** prints the package version (currently it
-   doesn't, by inspection of the bin entry).
+4. **Landing page** at `agentlint.sh`. Spec ready at
+   [`docs/marketing/landing-page.md`](./marketing/landing-page.md).
+   Build in a separate repo (`agentlint/agentlint.sh`), Next.js +
+   Tailwind, hosted on Vercel. Agent builds; human approves copy and
+   provisions Vercel project. **Blocker:** Vercel project +
+   Cloudflare DNS record.
+5. **Leaderboard launch asset.** Spec ready at
+   [`docs/marketing/leaderboard.md`](./marketing/leaderboard.md).
+   Needs a read-only public GitHub token. SEO/GEO bait for launch.
+6. ~~**CONTRIBUTING.md.**~~ ✅ Shipped this session.
+7. ~~**CODE_OF_CONDUCT.md.**~~ ✅ Shipped this session — Contributor
+   Covenant 2.1 by reference, with project-specific reporting and
+   enforcement section.
+8. ~~**`agentlint --version`**~~ ✅ Already shipped in v1.0.0; verified
+   this session. No code change needed.
 
 ### P2 — 1.x roadmap
 

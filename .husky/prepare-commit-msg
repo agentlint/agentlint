@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+# Auto-append Co-Authored-By: Claude trailer to every commit unless already present.
+# Rationale: docs/CHARTER.md § 6 + docs/DECISIONS.md ADR-0009.
+# This repo is operated autonomously by an agent; the public history reflects that.
+
+COMMIT_MSG_FILE=$1
+COMMIT_SOURCE=$2
+
+# Skip merges, squashes, and amends sourced from existing commits — they already
+# carry their original trailers and we don't want to duplicate.
+case "$COMMIT_SOURCE" in
+  merge|squash) exit 0 ;;
+esac
+
+# Skip if a Co-Authored-By: Claude trailer is already present (case-insensitive).
+if grep -qiE '^Co-Authored-By:[[:space:]]*Claude' "$COMMIT_MSG_FILE"; then
+  exit 0
+fi
+
+# Strip leading comment lines and trailing whitespace, then ensure exactly one
+# blank line before the trailer block. We append rather than rewrite so we don't
+# disturb the user's authored message.
+printf '\nCo-Authored-By: Claude <noreply@anthropic.com>\n' >> "$COMMIT_MSG_FILE"

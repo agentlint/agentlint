@@ -7,21 +7,23 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-09 by Claude Code (charter session)
+**Last updated:** 2026-05-09 by Claude Code (v1.0.0 release session)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `48fdd61` — `chore: add prepare-commit-msg hook for agent co-authorship` |
+| Latest commit | `f01311c` — `chore(release): rename npm scope to @agentlinthq` |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
 | Tests | 17 passing (3 core + 14 CLI) |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` — see [GitHub Actions](https://github.com/agentlint/agentlint/actions) |
 | Repository | https://github.com/agentlint/agentlint (public, MIT) |
-| npm package | **publishing** — `@agentlinthq/cli` and `@agentlinthq/core`. Unscoped `agentlint` is held by an unrelated package — see ADR-0011 |
+| npm package | ✅ published — [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
+| GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
+| GitHub repo settings | ✅ description, topics (13), Discussions enabled, branch protection on `main` (CI required, linear history, no force-push) |
 | Domain | **not registered yet** — `agentlint.dev` planned |
 | Landing page | not built |
 
@@ -43,6 +45,17 @@
 - Project constitution established: `CHARTER`, `PROJECT_STATE`, `PLAYBOOK`,
   `DECISIONS`, rewritten `CLAUDE.md` entry point, `README` "How this is
   built" section, agent co-authorship hook in `.husky/prepare-commit-msg`.
+- **v1.0.0 published to npm** as `@agentlinthq/cli` and
+  `@agentlinthq/core`. The unscoped `agentlint` and the `agentlint` org
+  name on npm are both unavailable — see
+  [ADR-0011](./DECISIONS.md#adr-0011--publish-under-agentlinthq-org-scope-the-unscoped-agentlint-and-the-org-name-agentlint-are-both-taken).
+  Smoke-tested via `pnpm dlx @agentlinthq/cli@1.0.0` on a fresh dir.
+- GitHub repo configured: description, 13 topics (`ai`, `agents`,
+  `claude-code`, `cursor`, `copilot`, `codex`, `gemini-cli`,
+  `agents-md`, `developer-tools`, `lint`, `audit`, `cli`, `ci`),
+  Discussions enabled, branch protection on `main` requiring CI.
+- GitHub Release [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0)
+  created with install instructions and project framing.
 
 ## In flight
 
@@ -55,20 +68,20 @@ walk it top to bottom unless the human redirects.
 
 ### P0 — needed before public launch
 
-1. **Reserve npm package names.** Publish placeholder `0.1.0` for
-   `@agentlinthq/core` and `agentlint` to claim the names before someone else
-   does. Requires the human to log into npm and provide a 2FA OTP. The
-   agent prepares the release commit, the changelog, and the publish
-   command per [`PLAYBOOK.md`](./PLAYBOOK.md#publishing-to-npm). **Blocker:
-   human npm login.**
-2. **Buy `agentlint.dev`.** ~$12/yr, Cloudflare Registrar or Porkbun.
-   **Blocker: human purchase.**
-3. **Configure GitHub repo settings:** description, website URL, topics
-   (`ai`, `agents`, `claude-code`, `cursor`, `copilot`, `codex`,
-   `agents-md`, `developer-tools`, `lint`, `audit`), Discussions enabled,
-   branch protection on `main` requiring CI to pass. **Blocker: human
-   GitHub UI access** for some toggles; the agent can do most of this via
-   `gh` if a token with admin scope exists.
+1. ~~**Reserve npm package names.**~~ ✅ Done. Published v1.0.0 of
+   `@agentlinthq/cli` and `@agentlinthq/core` on 2026-05-09. The
+   unscoped `agentlint` and `agentlint` org name were unavailable —
+   pivoted to `agentlinthq` org. See ADR-0011.
+2. **Buy domain.** Original target `agentlint.dev` is taken; pivot to
+   `agentlint.sh` (recommended — devs read `.sh` as "real CLI";
+   precedent: `vercel.sh`). Backups: `agentlint.run`, `useagentlint.com`.
+   ~$15–40/yr at Cloudflare Registrar or Porkbun. **Blocker: human
+   purchase.**
+3. ~~**Configure GitHub repo settings.**~~ ✅ Done. Description, 13
+   topics, Discussions enabled, branch protection on `main` requiring
+   CI passing, linear history enforced, no force-push, no deletions.
+   Configured via GitHub PAT (revoke after session per the security
+   note below).
 
 ### P1 — pre-1.0 polish
 

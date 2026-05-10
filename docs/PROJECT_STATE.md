@@ -7,16 +7,16 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (slice 4 prod cutover + smoke test green; `agentlint --push` end-to-end live)
+**Last updated:** 2026-05-10 by Claude Code (slices 4–6 live in prod: `--push` ingest, dashboard sparkline + delta chips, public score badge endpoint, CLI `--public` flag)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `7fcf0e6` — `docs(cli): document --push flag and security model` (CLI repo); `c2c192f` — `fix(deps): sync pnpm-lock.yaml after zod + vitest add` (agentlint.sh repo) |
+| Latest commit | `cc0c40a` — `feat(cli): add --public flag to mark pushed runs as publicly visible` (CLI repo); `8923eef` — `docs(readme): document the score badge` (agentlint.sh repo) |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | CLI repo: 52 passing (3 core + 14 CLI rules + 38 push + 19 leaderboard subset shown). Web repo: 29 passing (16 token unit + 3 ulid + 3 rate-limit + 7 ingest integration). |
+| Tests | CLI repo: 52 passing. Web repo: 84 passing (16 token unit + 3 ulid + 3 rate-limit + 7 ingest integration + 19 sparkline/delta/chip + 36 badge color/width/render/route). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` |
@@ -34,6 +34,45 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Slices 5 + 6 ship + cutover (2026-05-10, late evening)
+
+- **Slice 5 — score trend sparkline + per-row delta chips.** Pure
+  server-rendered SVG sparkline above the existing "Recent runs"
+  table, plus per-row delta chips for score/passes/fails vs. the
+  next-older run. Helpers extracted to `lib/dashboard/trend.ts`
+  with 19 unit tests (boundary clamping, single-point handling,
+  flat-line min===max, all chip-color permutations). Commit:
+  `46e2570 feat(dashboard): score trend sparkline + per-row delta
+  chips`. Test count went 29 → 48.
+- **Slice 6 — public score badge.** New `public boolean default
+  false` column on `run` plus a composite index
+  `(repoOwner, repoName, public, createdAt desc)`. `POST /api/runs`
+  accepts an optional `public: boolean` field. New public
+  unauthenticated route `GET /badge/<owner>/<repo>.svg` returns a
+  shields.io-style SVG, score-color-coded, with a 5-min edge
+  cache + 1h SWR and a 60 req/min/IP rate limit. Commits:
+  `a74bbed feat(api): add public flag to runs schema and ingest
+  body`, `a21a21b feat(badge): public SVG score badge endpoint`,
+  `8923eef docs(readme): document the score badge`. Test count
+  went 48 → 84 (+36 badge tests including DB integration).
+- **CLI alignment for slice 6.** `feat(cli): add --public flag`
+  (commit `cc0c40a`). One-liner additive change to the ingest
+  body shape; with `--push --public` the pushed run is marked
+  public and the badge endpoint will render this repo's score.
+  Without `--push`, `--public` is a no-op. Self-audit holds at
+  100/100; tests stay at 52 (the new code path is covered by the
+  existing client tests since the body shape is opaque to the
+  client).
+- **Prod cutover for slice 6 schema.** `drizzle-kit push` ran
+  against the Neon prod branch; `public` column + composite index
+  exist in prod. `.env.production.local` removed after the run.
+- **Slice 6 smoke test in prod.** Inserted a synthetic public run
+  for `agentlint/agentlint`, hit
+  `https://agentlint.sh/badge/agentlint/agentlint.svg` → HTTP 200,
+  `image/svg+xml`, `Cache-Control: public, max-age=300`,
+  rendered SVG with `score: 100` in the green color band
+  (`#3fb950`). Smoke run cleaned up afterward; prod tables empty.
 
 ### Slice 4 prod cutover + smoke test (2026-05-10, late evening)
 
@@ -292,13 +331,15 @@ horizontally scaffold the whole schema first.
    `agentlint --push` against prod (score 100/100, `Pushed:` line
    printed, second row landed). Smoke artifacts cleaned up; prod
    tables empty for real users.
-5. **Run history on `/dashboard`** — list of past runs, score trend,
-   pass/fail diff vs. previous run. Vertical slice: read-side query,
-   chart component, empty state.
-6. **Public score badge** — SVG endpoint `/badge/:owner/:repo.svg`
-   reads the most recent public run for that repo. Vertical slice:
-   public-flag column on `runs`, SVG renderer, README copy snippet on
-   `/dashboard`.
+5. ~~**Run history on `/dashboard`**~~ ✅ Shipped 2026-05-10. See
+   "Slices 5 + 6 ship + cutover" entry. Server-rendered sparkline
+   + delta chips landed; no client JS added.
+6. ~~**Public score badge**~~ ✅ Shipped + smoke tested in prod
+   2026-05-10. Endpoint `/badge/<owner>/<repo>.svg` is live; CLI
+   `--public` flag wired; README documents the URL pattern.
+   Outstanding: dashboard UI to flip individual runs public/private
+   after the fact (deferred to a thin follow-up slice — currently
+   the only way to mark a run public is `agentlint --push --public`).
 7. **GitHub App for PR comments** — App posts a comment with score
    diff on every PR push. Vertical slice: GitHub App registration,
    webhook handler, install flow on `/dashboard`, comment template.

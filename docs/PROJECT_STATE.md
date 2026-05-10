@@ -22,8 +22,8 @@
 | CI | Green on `main` |
 | CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Website field: `https://agentlint.sh` |
 | Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private** as of 2026-05-10 — see ADR-0013). 4 dependabot alerts open (2 high, 2 moderate); triage pending. |
-| npm package | ✅ [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
-| GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
+| npm package | ✅ [`@agentlinthq/cli@1.1.0`](https://www.npmjs.com/package/@agentlinthq/cli) (2026-05-10 — `--push`, `--public`, `--pr` flags), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
+| GitHub Release | ✅ [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
 | Domain | ✅ `agentlint.sh` live in production via Cloudflare DNS (apex + www). Preview deployments at `previo.agentlint.sh`. |
 | Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Auto-deploy via `.github/workflows/deploy.yml` (push to main → prod, PR → preview). Vercel built-in git integration is **disconnected** because Hobby doesn't allow deploying private org repos — see ADR-0014. |

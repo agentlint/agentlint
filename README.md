@@ -58,6 +58,24 @@ Five categories, 30 checks, 0–100 score. See [AGENTS.md](./AGENTS.md) for proj
 
 For agent integration: `agentlint --json` and `agentlint --markdown` produce structured reports. Tell Claude Code or Cursor "run agentlint and fix what's failing" and it'll do the work.
 
+## Optional: push reports to a dashboard (`--push`)
+
+Off by default — the CLI is local-first and never phones home unless you opt in.
+
+If you want a history of runs at <https://agentlint.sh/dashboard>:
+
+```bash
+# Generate a token at https://agentlint.sh/dashboard/tokens
+export AGENTLINT_TOKEN=agl_...
+
+agentlint --push
+# → Pushed: https://agentlint.sh/dashboard
+```
+
+The token is read from `AGENTLINT_TOKEN` first, then from `~/.config/agentlint/token` (one line, `chmod 600` recommended). The token is never read from `argv`. Push failures (auth, rate limit, network) print one line and exit 0 — the local audit still succeeds. The CLI refuses to send to non-HTTPS URLs (except `localhost` / `127.0.0.1`).
+
+See [`packages/cli/README.md`](./packages/cli/README.md) for the full security model.
+
 ## How this project is built
 
 agentlint is **agent-built, open to everyone.**

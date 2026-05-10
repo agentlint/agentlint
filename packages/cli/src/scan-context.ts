@@ -16,7 +16,8 @@ export async function createScanContext(args: {
     root,
     url: args.url,
     async read(relPath) {
-      if (fileCache.has(relPath)) return fileCache.get(relPath)!;
+      const cached = fileCache.get(relPath);
+      if (cached !== undefined) return cached;
       try {
         const content = await readFile(join(root, relPath), "utf-8");
         fileCache.set(relPath, content);
@@ -27,7 +28,8 @@ export async function createScanContext(args: {
       }
     },
     async exists(relPath) {
-      if (existsCache.has(relPath)) return existsCache.get(relPath)!;
+      const cached = existsCache.get(relPath);
+      if (cached !== undefined) return cached;
       try {
         await stat(join(root, relPath));
         existsCache.set(relPath, true);
@@ -38,7 +40,8 @@ export async function createScanContext(args: {
       }
     },
     async glob(pattern) {
-      if (globCache.has(pattern)) return globCache.get(pattern)!;
+      const cached = globCache.get(pattern);
+      if (cached !== undefined) return cached;
       const results = await fg(pattern, {
         cwd: root,
         dot: true,
@@ -127,12 +130,10 @@ async function detectProjectMeta(root: string): Promise<ProjectMeta> {
     (await has("tsconfig.json")) || (await has("tsconfig.base.json"));
   const pkgHasTs =
     manifest &&
-    ((manifest.devDependencies as Record<string, string> | undefined)?.[
-      "typescript"
-    ] !== undefined ||
-      (manifest.dependencies as Record<string, string> | undefined)?.[
-        "typescript"
-      ] !== undefined);
+    ((manifest.devDependencies as Record<string, string> | undefined)
+      ?.typescript !== undefined ||
+      (manifest.dependencies as Record<string, string> | undefined)
+        ?.typescript !== undefined);
   if (hasTsConfig || pkgHasTs) language = "typescript";
   else if (manifest) language = "javascript";
   else if ((await has("pyproject.toml")) || (await has("requirements.txt")))

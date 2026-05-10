@@ -1,0 +1,16 @@
+{
+  "name": "@agentlinthq/leaderboard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Internal tool: scan top GitHub repos and produce the agentlint leaderboard. Not published.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

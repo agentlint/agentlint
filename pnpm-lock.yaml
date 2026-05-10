@@ -45,6 +45,8 @@ importers:
 
   packages/core: {}
 
+  tools/leaderboard: {}
+
 packages:
 
   '@biomejs/biome@2.4.15':

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+.env.production
+agentlint-report.html
+
+# IDE
+.vscode/
+.idea/
+
+# Should not be present — this repo uses pnpm
+package-lock.json
+yarn.lock

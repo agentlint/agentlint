@@ -1,0 +1,44 @@
+{
+  "name": "agentlint",
+  "version": "1.0.0",
+  "description": "The Lighthouse for AI coding agents. Audit any repo for how ready it is for Claude Code, Cursor, Codex, Copilot, and Gemini CLI.",
+  "type": "module",
+  "bin": {
+    "agentlint": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "agents.md",
+    "lint",
+    "audit"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@agentlint/core": "workspace:*",
+    "fast-glob": "^3.3.2",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2"
+  }
+}

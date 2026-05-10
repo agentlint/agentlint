@@ -1,0 +1,6 @@
+# Default: everything goes to the maintainer
+*                              @maintainer
+
+# Score-affecting code requires extra scrutiny
+/packages/cli/src/rules/       @maintainer
+/packages/core/src/score.ts    @maintainer

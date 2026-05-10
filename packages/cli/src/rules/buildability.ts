@@ -16,7 +16,7 @@ function mentionsCommand(content: string, keyword: string): boolean {
   for (const block of matches) {
     if (new RegExp(`\\b${keyword}\\b`, "i").test(block)) return true;
   }
-  return new RegExp("`[^`]*\\b" + keyword + "\\b[^`]*`", "i").test(content);
+  return new RegExp(`\`[^\`]*\\b${keyword}\\b[^\`]*\``, "i").test(content);
 }
 
 export const buildCmdDocumented: Rule = {

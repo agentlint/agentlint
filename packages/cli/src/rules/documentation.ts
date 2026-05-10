@@ -1,4 +1,4 @@
-import type { Rule, ScanContext } from "@agentlint/core";
+import type { Rule } from "@agentlint/core";
 import { fail, pass, skip, warn } from "./_helpers.js";
 
 /**
@@ -133,7 +133,6 @@ export const apiReferenceTextExtractable: Rule = {
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim().length;
-    const svgCount = (r.text.match(/<svg/g) ?? []).length;
     const canvasCount = (r.text.match(/<canvas/g) ?? []).length;
     if (textLen > 1500 && canvasCount < 3)
       return pass(

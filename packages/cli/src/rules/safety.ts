@@ -64,7 +64,7 @@ export const preCommitHooks: Rule = {
     if (await ctx.exists(".githooks"))
       return pass("pre-commit-hooks", 3, ".githooks directory configured.");
     const m = ctx.meta.manifest;
-    if (m && m["lint-staged"])
+    if (m?.["lint-staged"])
       return pass("pre-commit-hooks", 3, "lint-staged configured.");
     return fail("pre-commit-hooks", "No pre-commit hooks configured.", {
       summary:

@@ -1,4 +1,4 @@
-import type { Category, Report, Result } from "@agentlint/core";
+import type { Category, Report } from "@agentlint/core";
 import pc from "picocolors";
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -13,7 +13,7 @@ export function renderTerminal(report: Report): string {
   const lines: string[] = [];
   lines.push("");
   lines.push(
-    `${pc.bold("agentlint")} ${pc.dim("v" + report.version)}  ${pc.dim("scanning")} ${report.root}`,
+    `${pc.bold("agentlint")} ${pc.dim(`v${report.version}`)}  ${pc.dim("scanning")} ${report.root}`,
   );
   if (report.url) lines.push(`  ${pc.dim("docs URL:")} ${report.url}`);
   lines.push("");

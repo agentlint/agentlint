@@ -14,3 +14,4 @@ agentlint-report.html
 # Should not be present — this repo uses pnpm
 package-lock.json
 yarn.lock
+HANDOFF.md

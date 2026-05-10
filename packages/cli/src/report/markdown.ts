@@ -82,5 +82,5 @@ export function renderMarkdown(report: Report): string {
     }
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }

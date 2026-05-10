@@ -1,5 +1,5 @@
 import type { Rule } from "@agentlint/core";
-import { fail, findAgentsMd, hasSection, pass, warn } from "./_helpers.js";
+import { fail, findAgentsMd, hasSection, pass } from "./_helpers.js";
 
 export const linterConfig: Rule = {
   meta: {

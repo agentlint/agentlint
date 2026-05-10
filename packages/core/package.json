@@ -1,6 +1,7 @@
 {
   "name": "@agentlint/core",
   "version": "1.0.0",
+  "description": "Pure types and score calculator for agentlint. The Lighthouse for AI coding agents.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,5 +16,34 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "files": ["dist"]
+  "files": ["dist", "README.md"],
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "codex",
+    "agents-md",
+    "lint",
+    "audit",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/agentlint/agentlint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentlint/agentlint.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/agentlint/agentlint/issues"
+  },
+  "license": "MIT",
+  "author": "agentlint contributors",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

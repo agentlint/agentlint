@@ -1,7 +1,7 @@
 {
   "name": "agentlint",
   "version": "1.0.0",
-  "description": "The Lighthouse for AI coding agents. Audit any repo for how ready it is for Claude Code, Cursor, Codex, Copilot, and Gemini CLI.",
+  "description": "The Lighthouse for AI coding agents. Audit any repo for how ready it is for Claude Code, Cursor, Codex, Copilot, and Gemini CLI. Get a 0–100 score and a fix list in 30 seconds.",
   "type": "module",
   "bin": {
     "agentlint": "./dist/index.js"
@@ -23,12 +23,25 @@
     "claude-code",
     "cursor",
     "copilot",
-    "agents.md",
+    "codex",
+    "gemini",
+    "agents-md",
     "lint",
-    "audit"
+    "audit",
+    "developer-tools",
+    "ci"
   ],
-  "author": "",
+  "homepage": "https://github.com/agentlint/agentlint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentlint/agentlint.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/agentlint/agentlint/issues"
+  },
   "license": "MIT",
+  "author": "agentlint contributors",
   "dependencies": {
     "@agentlint/core": "workspace:*",
     "fast-glob": "^3.3.2",
@@ -40,5 +53,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

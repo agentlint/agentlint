@@ -85,6 +85,58 @@
   push only, CLI-side PR detection, `pull_request_target` accepted,
   no payload echo in webhook errors, mocked GitHub in tests).
 
+### Slice 7 ship + prod cutover (2026-05-10, late evening)
+
+- **GitHub App `agentlint-ci` registered** (App ID `3668343`,
+  slug `agentlint-ci`, public link
+  https://github.com/apps/agentlint-ci). Permissions: Pull requests
+  R/W, Contents R, Checks R/W, Metadata R. Subscribed events:
+  Pull request, Push, Check suite, Installation, Installation
+  repositories. "Any account" install scope (so paid customers
+  can install on their own orgs).
+- **Four prod env vars set on Vercel** (production scope only):
+  `GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
+  `GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY_B64`
+  (base64-encoded RSA PEM; decoded at runtime). Private key
+  moved out of `~/Downloads` to `~/.config/agentlint-secrets/`
+  with `chmod 600`.
+- **Slice 7 implementation** by a clean-context subagent across
+  both repos. Web: `e6f5242 feat(db): add installation +
+  pr_comment tables`, `af4fbbc feat(api): GitHub App webhook
+  handler with signature verification`, `78114ba feat(api):
+  post/update PR comment on /api/runs when installation
+  present`. CLI: `6676dbd feat(cli): detect PR context from CI
+  env and include in --push body`, `3b20e6d docs: document the
+  GitHub App PR-comment flow and slice 7 decisions`. Web tests
+  84 → 122 (+38). CLI tests 52 → 65 (+13). Self-audit holds at
+  100/100.
+- **Hand-rolled RS256 JWT on `node:crypto`** (no
+  `jsonwebtoken` dep). Installation access tokens cached
+  in-memory with a 5-min early refresh. Webhook handler returns
+  200 on every recognized event and any unrecognized one (only
+  signature failure produces 401). Comment posting runs
+  fire-and-forget from `/api/runs` so ingest stays fast — the
+  webhook itself never posts comments. Magic marker
+  `<!-- agentlint-comment:do-not-edit -->` lets us recover the
+  comment if `pr_comment` row state drifts from GitHub. See
+  ADR-0016 for the full list of twelve calls.
+- **Prod schema cutover.** `drizzle-kit push` against the Neon
+  prod branch installed `installation` and `pr_comment` tables
+  plus the `(repoOwner, repoName, prNumber)` unique index on
+  `pr_comment` and the `(accountLogin)` index on `installation`.
+  `.env.production.local` removed after the run.
+- **Webhook signature smoke test** in prod: `POST
+  /api/github/webhook` with no signature → 401, with a fake
+  signature → 401. Route alive, signature gate honoring
+  `GITHUB_APP_WEBHOOK_SECRET`.
+- **Outstanding human action:** the App was installed on the
+  `agentlint` org **before** the webhook handler existed. The
+  `installation.created` event hit a 404 and is unlikely to
+  redeliver. Either redeliver from "Recent Deliveries" in App
+  settings or uninstall + reinstall the App on the org so the
+  webhook fires against the live route and the `installation`
+  table populates.
+
 ### Slices 5 + 6 ship + cutover (2026-05-10, late evening)
 
 - **Slice 5 — score trend sparkline + per-row delta chips.** Pure

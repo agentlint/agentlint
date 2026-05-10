@@ -28,6 +28,7 @@ async function main() {
       version: { type: "boolean", short: "v" },
       "no-html": { type: "boolean" },
       push: { type: "boolean" },
+      public: { type: "boolean" },
     },
     allowPositionals: true,
     strict: true,
@@ -80,12 +81,12 @@ async function main() {
 
   if (values.json) {
     process.stdout.write(renderJson(report));
-    if (values.push) await runPush(report, values.url, root);
+    if (values.push) await runPush(report, values.url, root, !!values.public);
     process.exit(report.score < 80 ? 1 : 0);
   }
   if (values.markdown) {
     process.stdout.write(renderMarkdown(report));
-    if (values.push) await runPush(report, values.url, root);
+    if (values.push) await runPush(report, values.url, root, !!values.public);
     process.exit(report.score < 80 ? 1 : 0);
   }
 
@@ -99,7 +100,7 @@ async function main() {
     console.log("");
   }
 
-  if (values.push) await runPush(report, values.url, root);
+  if (values.push) await runPush(report, values.url, root, !!values.public);
 
   process.exit(report.score < 80 ? 1 : 0);
 }
@@ -113,6 +114,7 @@ async function runPush(
   report: ReturnType<typeof buildReport>,
   flagUrl: string | undefined,
   cwd: string,
+  isPublic: boolean,
 ): Promise<void> {
   const endpoint =
     pickEndpoint(flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
@@ -137,6 +139,7 @@ async function runPush(
     repo: repo
       ? { owner: repo.owner, name: repo.name }
       : { owner: null, name: null },
+    public: isPublic,
     report,
   });
 
@@ -202,6 +205,9 @@ Options:
                              (requires AGENTLINT_TOKEN env or
                              ~/.config/agentlint/token; opt-in, never on by
                              default)
+  --public                   With --push, mark the run public so the score
+                             badge at /badge/<owner>/<repo>.svg renders this
+                             repo's score. No effect without --push.
   --version, -v              Print version
   --help, -h                 Show this message
 

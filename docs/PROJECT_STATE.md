@@ -518,3 +518,4 @@ The agent runs this at session end:
 5. Commit (`docs: update PROJECT_STATE`) and push.
 6. Send the 3-bullet summary to the human: shipped / pending / next.
 
+

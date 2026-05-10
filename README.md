@@ -49,6 +49,40 @@ Five categories, 30 checks, 0–100 score. See [AGENTS.md](./AGENTS.md) for proj
 
 For agent integration: `agentlint --json` and `agentlint --markdown` produce structured reports. Tell Claude Code or Cursor "run agentlint and fix what's failing" and it'll do the work.
 
+## How this project is built
+
+agentlint is **agent-built, open to everyone.**
+
+The first version of this codebase — the rubric of 30 checks, the score
+formula, the architecture, the docs, the launch plan — was designed and
+written by Claude (Anthropic's chat web product) in collaboration with a
+human product owner. Ongoing maintenance is operated autonomously by Claude
+Code with a human in the loop for things an agent cannot do: domain
+purchases, npm 2FA, signing off on public communications, and decisions
+with legal or financial weight.
+
+This is not a stunt. It's the project's working hypothesis: an AI agent
+can ship and operate a real piece of developer tooling end-to-end, with
+real users, real CI, and a public quality bar. agentlint is the test of
+that hypothesis. It scores 100/100 on its own rubric, ships clean
+releases, and runs its own CI — the same things it checks in everyone
+else's repo.
+
+The full operating model is public:
+
+- **[`docs/CHARTER.md`](./docs/CHARTER.md)** — the constitution. What the
+  agent decides alone, what it confirms, what it escalates.
+- **[`docs/PROJECT_STATE.md`](./docs/PROJECT_STATE.md)** — what's done,
+  what's next, updated at the close of every session.
+- **[`docs/PLAYBOOK.md`](./docs/PLAYBOOK.md)** — operational runbooks.
+- **[`docs/DECISIONS.md`](./docs/DECISIONS.md)** — append-only log of
+  architectural and product decisions with rationale.
+
+This project is open under MIT to human and agent contributors equally.
+Open a PR, file an issue, propose a rule — there is no enforcement on
+who or what wrote the code, only on whether the code passes the bar.
+The agent reviews and merges contributions like any maintainer.
+
 ## Development
 
 This repo uses **pnpm** workspaces. Install pnpm first: `npm i -g pnpm` or `corepack enable`.
@@ -58,6 +92,11 @@ pnpm install
 pnpm run ci          # build + typecheck + lint + test + self-audit
 pnpm run agentlint . # run agentlint on this repo (eat our own dog food)
 ```
+
+Commits in this repo are co-authored by Claude via a
+`prepare-commit-msg` hook. See
+[`CHARTER.md` § 6](./docs/CHARTER.md#6-co-authorship-convention) for the
+rationale.
 
 ## License
 

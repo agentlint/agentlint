@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (slice 4 shipped — `agentlint --push` end-to-end, autonomous parallel subagent build)
+**Last updated:** 2026-05-10 by Claude Code (slice 4 prod cutover + smoke test green; `agentlint --push` end-to-end live)
 
 ## Snapshot
 
@@ -34,6 +34,31 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Slice 4 prod cutover + smoke test (2026-05-10, late evening)
+
+- **Schema migrated to Neon prod branch** via `drizzle-kit push`
+  with the prod `DATABASE_URL` from `vercel env pull`. `api_token`
+  + `run` tables now exist on prod with the indexes specified in
+  ADR-0015.
+- **`NEXT_PUBLIC_PUSH_ENABLED=true` set in Vercel prod env** via
+  `vercel env add` and a fresh `vercel deploy --prod`. The
+  dashboard runs list and the `Manage tokens →` link are now
+  visible to authenticated users in prod.
+- **End-to-end smoke test passed in prod (twice).** A synthetic
+  token was inserted directly into `api_token` (matched the
+  generator's hashing/encoding so the server's `looksLikeToken`
+  check succeeds), then exercised two ways: (1) raw `curl POST
+  /api/runs` with the bearer → HTTP 201, run row landed,
+  `lastUsedAt` bumped; (2) real CLI build + `AGENTLINT_TOKEN=…
+  AGENTLINT_URL=https://agentlint.sh node
+  packages/cli/dist/index.js --push .` → self-audit 100/100,
+  `Pushed: https://agentlint.sh/dashboard` printed, second row
+  landed. Smoke token + both runs cleaned up afterward; the prod
+  `run` and `api_token` tables are empty so real users see the
+  intended empty-state copy.
+- **Production credentials no longer cached on disk.**
+  `.env.production.local` removed after the cutover.
 
 ### Slice 4 ship session (2026-05-10, evening)
 
@@ -258,14 +283,15 @@ re-enable Pro/Team subscriptions in good faith. Each line item is a
 any), and UI for that one feature live in the same PR. Do not
 horizontally scaffold the whole schema first.
 
-4. ~~**`agentlint --push` + report ingest**~~ ✅ Shipped 2026-05-10.
-   See ADR-0015 and the "Slice 4 ship session" entry under
-   "Done — recent". Outstanding: cross-repo smoke test (issue 5 of
-   the PRD) — generate a token on the deployed preview, run
-   `agentlint --push` from a fresh clone, confirm the row lands and
-   the dashboard renders it. Then push schema to Neon **prod**
-   branch and flip `NEXT_PUBLIC_PUSH_ENABLED=true` in Vercel prod
-   env.
+4. ~~**`agentlint --push` + report ingest**~~ ✅ Shipped + smoke
+   tested in prod 2026-05-10. See ADR-0015 and the "Slice 4 ship
+   session" entry under "Done — recent". Schema applied to Neon
+   **prod** branch. `NEXT_PUBLIC_PUSH_ENABLED=true` set in Vercel
+   prod env. End-to-end verified twice: synthetic curl POST
+   (HTTP 201 + row in `run` + `lastUsedAt` bumped) and real CLI
+   `agentlint --push` against prod (score 100/100, `Pushed:` line
+   printed, second row landed). Smoke artifacts cleaned up; prod
+   tables empty for real users.
 5. **Run history on `/dashboard`** — list of past runs, score trend,
    pass/fail diff vs. previous run. Vertical slice: read-side query,
    chart component, empty state.

@@ -1,0 +1,75 @@
+name: publish-cli
+
+# Manual publish flow for @agentlinthq/cli to npm. Trigger from the
+# Actions tab → "Run workflow". Bumps + tags + builds + publishes.
+# We don't auto-publish on tag push because v2 launch needs to be
+# synced with the web v2 deploy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no npm publish, no GitHub release)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: CI (typecheck + lint + test + self-audit)
+        run: pnpm run ci
+
+      - name: Read package versions
+        id: ver
+        run: |
+          cli=$(jq -r .version packages/cli/package.json)
+          core=$(jq -r .version packages/core/package.json)
+          echo "cli=$cli" >> "$GITHUB_OUTPUT"
+          echo "core=$core" >> "$GITHUB_OUTPUT"
+          echo "Publishing @agentlinthq/cli@$cli (core @$core)"
+
+      - name: Publish @agentlinthq/cli (dry-run gate)
+        if: inputs.dry_run == 'true'
+        run: pnpm --filter @agentlinthq/cli publish --no-git-checks --dry-run
+
+      - name: Publish @agentlinthq/cli
+        if: inputs.dry_run != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @agentlinthq/cli publish --no-git-checks --access public
+
+      - name: Tag + release
+        if: inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.ver.outputs.cli }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "tag $tag already exists, skipping release"
+          else
+            git tag "$tag"
+            git push origin "$tag"
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes "See CHANGELOG.md for details."
+          fi

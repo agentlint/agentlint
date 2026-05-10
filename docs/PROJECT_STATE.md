@@ -7,16 +7,16 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (community files + launch-asset specs)
+**Last updated:** 2026-05-10 by Claude Code (SECURITY.md + leaderboard scaffold)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `8975372` — `docs: refresh PROJECT_STATE after v1.0.0 publish + GitHub config` |
+| Latest commit | `496fa70` — `feat(leaderboard): scaffold @agentlinthq/leaderboard tool with fetch-repos` |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | 17 passing (3 core + 14 CLI) |
+| Tests | 24 passing (3 core + 14 CLI + 7 leaderboard) |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` — see [GitHub Actions](https://github.com/agentlint/agentlint/actions) |
@@ -27,10 +27,26 @@
 | Domain | ✅ `agentlint.sh` registered via Cloudflare; DNS not yet pointed |
 | Landing page | spec drafted at `docs/marketing/landing-page.md`; not built |
 | Leaderboard | spec drafted at `docs/marketing/leaderboard.md`; not built |
-| Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` |
+| Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
+| Leaderboard tool | scaffold landed (`tools/leaderboard/`); only `fetch-repos` stage built; pipeline remainder pending |
 
 ## Done — recent
 
+- `SECURITY.md` written: private disclosure via GitHub Security Advisory
+  or `security@agentlint.sh` (forwarder pending), severity-keyed fix
+  windows, supported versions, safe-harbor clause, hardening notes
+  pinning the local-first invariants.
+- `tools/leaderboard/` workspace scaffolded — `@agentlinthq/leaderboard`,
+  private (never published). v1 lands `fetch-repos` only:
+  `buildSearchUrl`, `parseSearchResponse`, `fetchTopRepos` with
+  injectable `fetchFn`, required `GITHUB_TOKEN`, paginated, identified
+  via `User-Agent`, throws on non-2xx. Seven vitest tests cover URL
+  shape, response parsing happy/degraded paths, missing token,
+  pagination concatenation, empty-page short-circuit, non-2xx
+  surfacing. `pnpm-workspace.yaml` extended to `tools/*` so the new
+  tool is picked up by all workspace-recursive scripts. Biome lint
+  remains scoped to `packages/*` (config-protection hook blocks edits
+  to `biome.json`); follow-up will broaden lint coverage to `tools/*`.
 - Domain `agentlint.sh` purchased on Cloudflare. DNS pending — needs two
   records pointed at Vercel (`A`/`CNAME` apex + `CNAME www`) once the
   Vercel project for the landing page is provisioned.
@@ -117,8 +133,10 @@ walk it top to bottom unless the human redirects.
    provisions Vercel project. **Blocker:** Vercel project +
    Cloudflare DNS record.
 5. **Leaderboard launch asset.** Spec ready at
-   [`docs/marketing/leaderboard.md`](./marketing/leaderboard.md).
-   Needs a read-only public GitHub token. SEO/GEO bait for launch.
+   [`docs/marketing/leaderboard.md`](./marketing/leaderboard.md);
+   `fetch-repos` stage scaffolded under `tools/leaderboard/`. Remaining
+   pipeline stages: `clone-and-scan`, `aggregate`, `render-page`,
+   `render-blog`. Needs a read-only public GitHub token at runtime.
 6. ~~**CONTRIBUTING.md.**~~ ✅ Shipped this session.
 7. ~~**CODE_OF_CONDUCT.md.**~~ ✅ Shipped this session — Contributor
    Covenant 2.1 by reference, with project-specific reporting and

@@ -7,30 +7,84 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (SECURITY.md + leaderboard scaffold)
+**Last updated:** 2026-05-10 by Claude Code (overnight MVP — agentlint.sh app + leaderboard pipeline + launch copy)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `496fa70` — `feat(leaderboard): scaffold @agentlinthq/leaderboard tool with fetch-repos` |
+| Latest commit | `3950173` — `feat(leaderboard): add clone-and-scan, aggregate, and render stages` |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | 24 passing (3 core + 14 CLI + 7 leaderboard) |
+| Tests | 36 passing (3 core + 14 CLI + 19 leaderboard) |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
-| CI | Green on `main` — see [GitHub Actions](https://github.com/agentlint/agentlint/actions) |
-| Repository | https://github.com/agentlint/agentlint (public, MIT) |
-| npm package | ✅ published — [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
+| CI | Green on `main` |
+| Repository | https://github.com/agentlint/agentlint (public, MIT). Website field: ✅ `https://agentlint.sh` |
+| npm package | ✅ [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
 | GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
-| GitHub repo settings | ✅ description, topics (13), Discussions enabled, branch protection on `main` (CI required, linear history, no force-push) |
-| Domain | ✅ `agentlint.sh` registered via Cloudflare; DNS not yet pointed |
-| Landing page | spec drafted at `docs/marketing/landing-page.md`; not built |
-| Leaderboard | spec drafted at `docs/marketing/leaderboard.md`; not built |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
-| Leaderboard tool | scaffold landed (`tools/leaderboard/`); only `fetch-repos` stage built; pipeline remainder pending |
+| Domain | ✅ `agentlint.sh` registered (Cloudflare). DNS records prepared (see `docs/marketing/dns-cloudflare.md`); apex/www added to Vercel project. **DNS still needs to be applied at Cloudflare.** |
+| Landing app | ✅ deployed — repo `agentlint/agentlint.sh`, live at https://agentlint-h7tzcx0jl-agentlint.vercel.app/ (will move to `agentlint.sh` once DNS resolves). Routes `/`, `/pricing`, `/login`, `/leaderboard`, `/dashboard` (auth-gated). |
+| Auth | ✅ better-auth + GitHub OAuth + Drizzle adapter; sessions persisted in Neon Postgres |
+| Database | ✅ Neon Postgres — separate prod and dev branches; schema migrated to both via `drizzle-kit push` |
+| Billing | ✅ Stripe test-mode wired end-to-end: products and recurring prices created (Pro $19/mo `price_1TVSfe9F4iHrjiRHkNR8TDfJ`, Team $99/mo `price_1TVSff9F4iHrjiRHwDarGSNC`), Checkout, Customer Portal, signature-verifying webhook. Webhook secret set in Vercel. |
+| Leaderboard tool | ✅ pipeline functions complete (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`). Bin entrypoint and first run still pending. |
+| Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Overnight MVP session (2026-05-10)
+
+- **`agentlint/agentlint.sh` repository created** via API (PAT-driven, no
+  human UI step). Cloned locally to `~/Code/agentlint-sh/`. Same repo
+  ships landing, pricing, auth, dashboard, leaderboard placeholder.
+- **Next.js 15.5 app scaffolded.** Tailwind v4 with CSS-first theme
+  config, dark palette, monospace accents. Routes:
+  `/` (hero + 3-up + why + scoring rubric + how-it's-built + hosted
+  teaser + footer), `/pricing` (Free/Pro/Team tiers, Pro highlighted,
+  Stripe Checkout), `/login` (GitHub OAuth via better-auth),
+  `/dashboard` (auth-gated, shows plan + Customer Portal),
+  `/leaderboard` (placeholder with methodology and anti-gaming clauses
+  pre-written for SEO).
+- **Auth: better-auth + GitHub OAuth + Drizzle.** Session, account,
+  user, verification, subscription tables. 30-day session.
+  `/api/auth/[...all]` route serves the full handler.
+- **DB: Neon Postgres.** Two databases — `prod` and `dev`. Schema
+  migrated to both via `drizzle-kit push`.
+- **Billing: Stripe test-mode end-to-end.** Products and recurring
+  prices created via API (Pro $19/mo, Team $99/mo). Three routes:
+  `/api/stripe/checkout`, `/api/stripe/portal`, `/api/stripe/webhook`.
+  Webhook signature verified, subscription state upserted on
+  subscription/checkout events. Webhook endpoint registered in Stripe
+  pointing at `https://agentlint.sh/api/stripe/webhook`; secret set in
+  Vercel env.
+- **Vercel deploy.** Pre-existing project linked locally via
+  `.vercel/project.json`. All env vars set programmatically (Database,
+  better-auth, GitHub OAuth, Stripe keys + webhook secret + price IDs).
+  SSO protection on deployment URLs disabled. Production deploy live
+  at the temporary `*.vercel.app` URL; routes verified (200 / 200 / 200
+  / 200, dashboard 307→/login). Custom domains `agentlint.sh` and
+  `www.agentlint.sh` added to project. Will go live once DNS at
+  Cloudflare is applied.
+- **Leaderboard pipeline (TDD, vertical).** Three new modules in
+  `tools/leaderboard/src/`: `clone-and-scan` (parses agentlint JSON
+  reports, runs the CLI against a shallow clone via injectable
+  execFn), `aggregate` (merges scan results with metadata, sorts by
+  score with stars as tiebreaker, ranks the scored rows, pushes
+  failures to the bottom), `render` (JSON serializer + escaped HTML
+  table). 19 vitest tests (was 7).
+- **Launch copy drafts.** `docs/marketing/launch-hn.md` (Show HN with
+  prepared answers to likely objections), `launch-x-thread.md`
+  (9-tweet thread, no emojis, dev-first tone), `launch-product-hunt.md`
+  (tagline, description, full maker-comment, gallery / hunter
+  guidance).
+- **GitHub Website field set on `agentlint/agentlint`** to
+  `https://agentlint.sh` via API.
+- **Self-audit 100/100 maintained throughout. Tests: 36 (3 core + 14
+  CLI + 19 leaderboard).**
+
+### Prior
 
 - `SECURITY.md` written: private disclosure via GitHub Security Advisory
   or `security@agentlint.sh` (forwarder pending), severity-keyed fix
@@ -124,25 +178,40 @@ walk it top to bottom unless the human redirects.
    Configured via GitHub PAT (revoke after session per the security
    note below).
 
-### P1 — pre-1.0 polish
+### P1 — pre-launch (action items for human)
 
-4. **Landing page** at `agentlint.sh`. Spec ready at
-   [`docs/marketing/landing-page.md`](./marketing/landing-page.md).
-   Build in a separate repo (`agentlint/agentlint.sh`), Next.js +
-   Tailwind, hosted on Vercel. Agent builds; human approves copy and
-   provisions Vercel project. **Blocker:** Vercel project +
-   Cloudflare DNS record.
-5. **Leaderboard launch asset.** Spec ready at
-   [`docs/marketing/leaderboard.md`](./marketing/leaderboard.md);
-   `fetch-repos` stage scaffolded under `tools/leaderboard/`. Remaining
-   pipeline stages: `clone-and-scan`, `aggregate`, `render-page`,
-   `render-blog`. Needs a read-only public GitHub token at runtime.
-6. ~~**CONTRIBUTING.md.**~~ ✅ Shipped this session.
-7. ~~**CODE_OF_CONDUCT.md.**~~ ✅ Shipped this session — Contributor
-   Covenant 2.1 by reference, with project-specific reporting and
-   enforcement section.
-8. ~~**`agentlint --version`**~~ ✅ Already shipped in v1.0.0; verified
-   this session. No code change needed.
+4. **Apply Cloudflare DNS records** so `agentlint.sh` resolves to
+   Vercel. Records (proxy = DNS only, gray cloud, NOT orange):
+   - `A` `@` → `216.198.79.1`
+   - `CNAME` `www` → `cname.vercel-dns.com.`
+   Vercel verifies automatically and provisions the cert within minutes.
+5. **Install the Vercel GitHub App** on the `agentlint` org so future
+   pushes to `agentlint/agentlint.sh` auto-deploy:
+   <https://github.com/apps/vercel> → "Configure" → install on
+   `agentlint` org → grant access to `agentlint.sh` repo. Then in
+   Vercel UI: Project Settings → Git → "Connect Git Repository" →
+   pick `agentlint/agentlint.sh`.
+6. **Smoke-test the purchase flow.** Visit
+   `https://agentlint.sh/pricing` → "Subscribe" → check out with
+   Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
+   Verify subscription appears at `/dashboard` and the row exists in
+   the `subscription` table on Neon prod.
+7. **Switch Stripe to live mode** when ready. Create live products and
+   prices (or copy the test ones), generate live publishable + secret
+   keys, generate live webhook signing secret, update the four
+   Stripe-related Vercel env vars. Charter says never auto-flip live
+   mode — always a human decision.
+8. **Leaderboard first run.** Pipeline functions are written and
+   tested (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`),
+   but the runner bin and the GitHub Action that triggers it weekly
+   are not yet wired. Next session:
+   - `tools/leaderboard/src/run.ts` — bin entrypoint that orchestrates
+     the four stages, writes `data/aggregated/<date>.json` and
+     `out/leaderboard.html`.
+   - GitHub Action in `agentlint/agentlint.sh` that fetches the
+     latest aggregated JSON and serves it at `/leaderboard`.
+   - First public run scored against top 100 (not 1000) for sanity,
+     then ramp.
 
 ### P2 — 1.x roadmap
 

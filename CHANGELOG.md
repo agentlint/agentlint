@@ -5,6 +5,78 @@ All notable changes to agentlint are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-10
+
+The web app at <https://agentlint.sh> moved to an **org-centric** model
+built on Better-Auth organizations. The CLI follows: it now authenticates
+with a project-scoped token, reads a checked-in config file at the repo
+root, and (on GitHub Actions) attaches an OIDC JWT so the server can
+verify run provenance.
+
+The local-only audit path is unchanged — without `--push`, the CLI still
+makes zero network calls beyond an optional `--url` docs audit
+([CHARTER §3](./docs/CHARTER.md)).
+
+### Added
+
+- **`agentlint init`** sets up `.agentlint.json` for `--push`. It
+  resolves the project token from `--token`, `AGENTLINT_TOKEN`, or
+  interactive stdin; preselects the repo from `git config remote.origin.url`;
+  calls `GET /api/cli/projects?repoOwner=&repoName=` to discover the
+  project linked to that repo for the calling org; and writes
+  `.agentlint.json` (canonical key order, 2-space indent, trailing
+  newline). On 404, it prints the dashboard URL to create one. Flags:
+  `--token`, `--repo owner/name`, `--endpoint`, `--yes/-y`, `--help`.
+- **`.agentlint.json` config file** at the repo root, checked into the
+  repo. Shape:
+  ```json
+  {
+    "projectId":  "proj_…",
+    "orgSlug":    "acme",
+    "repoOwner":  "acme",
+    "repoName":   "widgets",
+    "prodBranch": "main",
+    "version":    1
+  }
+  ```
+  The token is **never** stored in this file. Walk-up search resolves the
+  file from any subdirectory.
+- **Project-scoped tokens** (`agl_proj_…`, 61 chars total) generated at
+  <https://agentlint.sh/cli/auth>. Passed only via the `AGENTLINT_TOKEN`
+  env var.
+- **GitHub Actions OIDC provenance.** On Actions with `id-token: write`,
+  `--push` fetches a JWT with `audience=agentlint` from
+  `ACTIONS_ID_TOKEN_REQUEST_URL` and forwards it in `x-github-oidc`. The
+  server marks `provenance: oidc-verified`, `source: ci`. OIDC fetch
+  failure is non-fatal — push continues; the server tags `unverified` /
+  `local`.
+- **`--push` metadata.** The upload body now carries `branch`, `commitSha`,
+  and `projectId`. Branch resolves from `--branch` →
+  `GITHUB_REF_NAME` → `git rev-parse --abbrev-ref HEAD`. Commit resolves
+  from `--commit` → `GITHUB_SHA` → `git rev-parse HEAD`.
+- **`--project <id>`** flag overrides the projectId from `.agentlint.json`.
+
+### Changed
+
+- **Breaking:** `--push` now requires a `projectId` (from `.agentlint.json`
+  or `--project <id>`). v1 pushes that relied only on a personal token are
+  rejected; run `agentlint init` once to migrate.
+- **Breaking:** `~/.config/agentlint/token` file fallback is removed.
+  Tokens live in `AGENTLINT_TOKEN` only. The token-missing message now
+  points at `agentlint init`.
+- The push payload schema gained `branch`, `commitSha`, `projectId`. The
+  existing `score`, `passes`, `fails`, `warnings`, `skipped`, `repo`,
+  `public`, `pr`, `report` fields are unchanged.
+
+### Internal
+
+- New modules in `packages/cli/src/`: `init/index.ts`, `push/config.ts`,
+  `push/oidc.ts`, `push/project-lookup.ts`. All side effects (HTTP,
+  stdin prompts, FS writes, `git` exec) are injectable so the test suite
+  is fully offline.
+- 123 tests across 9 files (up from ~80 in v1.1). All injected
+  dependencies; no real network or filesystem touches.
+
 ## [1.1.0] - 2026-05-10
 
 The hosted-dashboard companion at <https://agentlint.sh> went live in
@@ -86,6 +158,7 @@ Initial public release.
   with a human in the loop; the operating model is public.
 - Self-audit: the repository scores 100/100 on its own rubric.
 
+[2.0.0]: https://github.com/agentlint/agentlint/releases/tag/v2.0.0
 [1.1.0]: https://github.com/agentlint/agentlint/releases/tag/v1.1.0
 [1.0.0]: https://github.com/agentlint/agentlint/releases/tag/v1.0.0
 

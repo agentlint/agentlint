@@ -1,12 +1,16 @@
-// Push client for `agentlint --push`.
+// Push client for `agentlint --push` (v2).
 //
-// Posts a report payload to <endpoint>/api/runs with a bearer token, with a
-// 15s timeout. Never throws — always returns a discriminated result so the
-// caller can render a one-line message and exit 0 (push is a side effect;
-// the local audit already succeeded).
+// Posts a report payload to <endpoint>/api/runs with a project-scoped bearer
+// token. Optionally forwards a GitHub Actions OIDC JWT in `x-github-oidc`
+// so the server can verify provenance.
 //
-// Local-first invariant (CHARTER §3): this code only runs when the user
-// passes --push. The HTTPS check below blocks accidental plaintext sends.
+// Local-first invariant (CHARTER §3): only runs when --push is explicit.
+// Never throws — always returns a discriminated result.
+
+import type { Report } from "@agentlinthq/core";
+import { fetchGithubOidcToken } from "./oidc.js";
+import type { PrContext } from "./pr-detect.js";
+import type { RepoInfo } from "./repo-detect.js";
 
 const PUSH_TIMEOUT_MS = 15_000;
 const RUNS_PATH = "/api/runs";
@@ -23,30 +27,100 @@ export type FetchFn = (
 
 export type GetEnvFn = (name: string) => string | undefined;
 
+export type OidcFetcherFn = (opts: {
+  getEnv?: GetEnvFn;
+}) => Promise<string | null>;
+
+export interface PushRunMetadata {
+  /** Repo owner/name detected from `git config`; null if unavailable. */
+  repo: RepoInfo | null;
+  /** Current branch — flag → CI env → git → null. */
+  branch: string | null;
+  /** Current commit sha — flag → CI env → git → null. */
+  commitSha: string | null;
+  /** Project id from `.agentlint.json` or `--project <id>`; null if neither. */
+  projectId: string | null;
+  /** Public flag — when true, server exposes the run for the badge. */
+  isPublic: boolean;
+  /** PR context (auto-detected on GHA or via --pr / AGENTLINT_PR). */
+  prContext: PrContext | null;
+}
+
 export interface PushReportArgs {
   /** Endpoint base, e.g. "https://agentlint.sh". Trailing slash optional. */
   url: string;
   token: string;
-  /** Pre-serialized JSON body. The caller owns the shape (PRD §API surface). */
-  body: string;
+  report: Report;
+  metadata: PushRunMetadata;
   fetchFn?: FetchFn;
   getEnv?: GetEnvFn;
+  /** Override for testing — fetch the OIDC JWT. Defaults to real fetcher. */
+  oidcFetcher?: OidcFetcherFn;
 }
 
 export type PushResult =
   | { ok: true; runUrl: string }
   | { ok: false; reason: string };
 
+interface Counts {
+  pass: number;
+  fail: number;
+  warn: number;
+  skip: number;
+}
+
+function countByStatus(results: Report["results"]): Counts {
+  let pass = 0;
+  let fail = 0;
+  let warn = 0;
+  let skip = 0;
+  for (const r of results) {
+    if (r.status === "pass") pass += 1;
+    else if (r.status === "fail") fail += 1;
+    else if (r.status === "warn") warn += 1;
+    else if (r.status === "skip") skip += 1;
+  }
+  return { pass, fail, warn, skip };
+}
+
 /**
- * Post the report body to `<url>/api/runs`.
+ * Build the JSON payload posted to `/api/runs`. Exported for tests.
+ */
+export function buildPushBody(
+  report: Report,
+  metadata: PushRunMetadata,
+): string {
+  const counts = countByStatus(report.results);
+  return JSON.stringify({
+    score: report.score,
+    passes: counts.pass,
+    fails: counts.fail,
+    warnings: counts.warn,
+    skipped: counts.skip,
+    repo: metadata.repo
+      ? { owner: metadata.repo.owner, name: metadata.repo.name }
+      : { owner: null, name: null },
+    branch: metadata.branch,
+    commitSha: metadata.commitSha,
+    projectId: metadata.projectId,
+    public: metadata.isPublic,
+    pr: metadata.prContext,
+    report,
+  });
+}
+
+/**
+ * Post the report to `<url>/api/runs`. Refuses non-https URLs unless the
+ * URL is `http://localhost` / `http://127.0.0.1` or AGENTLINT_INSECURE=1.
  *
- * Refuses non-https URLs unless the URL begins with `http://localhost` or
- * the env var AGENTLINT_INSECURE=1 is set. This is an undocumented escape
- * hatch for local web-side testing — see PRD §Security.
+ * On GitHub Actions with `id-token: write`, attaches the runner's OIDC JWT
+ * in `x-github-oidc`. OIDC fetch failure is non-fatal — the push proceeds
+ * and the server tags it `unverified`.
  */
 export async function pushReport(args: PushReportArgs): Promise<PushResult> {
   const fetchFn = args.fetchFn ?? (globalThis.fetch as FetchFn);
   const getEnv = args.getEnv ?? ((name: string) => process.env[name]);
+  const oidcFetcher = args.oidcFetcher ?? fetchGithubOidcToken;
 
   let parsed: URL;
   try {
@@ -69,16 +143,25 @@ export async function pushReport(args: PushReportArgs): Promise<PushResult> {
 
   const target = `${parsed.origin}${RUNS_PATH}`;
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${args.token}`,
+    "Content-Type": "application/json",
+    "User-Agent": "agentlint-cli/2.0 (+https://agentlint.sh)",
+  };
+
+  // Best-effort OIDC. Anything that goes wrong here is non-fatal: we still
+  // push, just without provenance.
+  const oidc = await oidcFetcher({ getEnv }).catch(() => null);
+  if (oidc) headers["x-github-oidc"] = oidc;
+
+  const body = buildPushBody(args.report, args.metadata);
+
   let res: Response;
   try {
     res = await fetchFn(target, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "agentlint-cli/1.0 (+https://agentlint.sh)",
-      },
-      body: args.body,
+      headers,
+      body,
       signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
     });
   } catch (err) {

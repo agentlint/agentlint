@@ -361,3 +361,52 @@ Sometimes the project needs a new package (e.g., `@agentlinthq/dashboard`,
 6. Run `pnpm install` from the repo root to wire it into the workspace.
 7. Run `pnpm run ci`. Must pass before commit.
 8. Commit: `chore: scaffold @agentlinthq/<name>`.
+
+## Branch workflow (ADR-0021)
+
+`main` is PR-gated on both repos. The flow for any change:
+
+1. From `main`, branch off: `git checkout -b feat/<slug>` (or `fix/<slug>`).
+2. Commit work locally. Push the branch: `git push -u origin feat/<slug>`.
+3. Open a PR. **Base = `dev` on the web app, `main` on the CLI.** The web
+   app keeps a long-lived `dev` branch so we can preview-stack multiple
+   features behind one Vercel preview URL.
+4. Vercel auto-deploys a preview for the web-app PR. Click through it
+   manually before requesting review.
+5. Merge into `dev`. Vercel preview redeploys with the merged state.
+6. When `dev` is ready to ship, open a second PR `dev → main`. CI runs;
+   on green, merge.
+
+**The local `.githooks/pre-push` hook on the web app blocks direct pushes
+to `main`.** Enable it per clone:
+```bash
+git config core.hooksPath .githooks
+```
+
+The CLI repo enforces this server-side via branch protection on
+`agentlint/agentlint` `main` — no hook needed.
+
+## Onboarding a new project (CLI v2)
+
+The first time a developer runs agentlint against a repo:
+
+1. Sign in to https://agentlint.sh with GitHub.
+2. Pick an org (the default "Personal" org auto-creates on signup).
+3. Create a project: `/dashboard/orgs/<slug>/projects/new`. Enter the
+   GitHub repo and pick a prod branch. The dashboard shows a project id.
+4. Mint a token from the project page. Save the plaintext immediately —
+   it's shown once.
+5. In the repo:
+   ```bash
+   export AGENTLINT_TOKEN=agl_proj_…
+   npx @agentlinthq/cli init
+   ```
+   This writes `.agentlint.json` and prints a CI snippet.
+6. Add `AGENTLINT_TOKEN` as a GitHub Actions secret in the repo settings.
+7. Commit `.agentlint.json` to the repo. CI now runs agentlint on every
+   push that includes the workflow snippet.
+
+Local runs (no `GITHUB_ACTIONS` env) post with `source=local,
+provenance=unverified`. CI runs with the right OIDC permission post with
+`source=ci, provenance=oidc-verified`. Both render on the dashboard with
+provenance labels.

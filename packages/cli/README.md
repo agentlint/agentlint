@@ -27,51 +27,124 @@ Exit code: 0 if score ≥ 80, 1 otherwise. Use this to gate CI.
 
 ## `--push` (opt-in upload to agentlint.sh)
 
-Upload the report to your dashboard at <https://agentlint.sh>. Off by default — without `--push`, the CLI never makes a network call beyond what the optional `--url` docs audit already does.
+In v2 the dashboard is **org-centric**: every project lives under an org and
+authenticates the CLI with a **project-scoped token**. The recommended flow is
+to run `--push` from CI so the server can verify provenance with GitHub Actions
+OIDC.
+
+### One-time setup with `agentlint init`
+
+From the repo root:
 
 ```bash
-# 1. Generate a token at https://agentlint.sh/dashboard/tokens
-# 2. Export it (or write it to ~/.config/agentlint/token, chmod 600)
-export AGENTLINT_TOKEN=agl_...
-agentlint --push
-# → Pushed: https://agentlint.sh/dashboard
+# 1. Generate a project token at https://agentlint.sh/cli/auth
+#    (it starts with `agl_proj_` and is 61 chars long).
+export AGENTLINT_TOKEN=agl_proj_...
+
+# 2. Link this repo to a dashboard project.
+agentlint init
+# → Wrote .agentlint.json:
+#     projectId: proj_abc123
+#     orgSlug:   acme
+#     repo:      acme/widgets
+#     branch:    main
 ```
+
+`init` reads the git remote (`git config --get remote.origin.url`) to
+preselect the repo, calls `GET /api/cli/projects?repoOwner=…&repoName=…`
+with the token, and writes `.agentlint.json` when a matching project is
+found. If the lookup returns 404, it prints the URL to create one in the
+dashboard.
+
+`agentlint init` flags:
+
+- `--token <value>` — supply the token without exporting it (or pipe it on
+  stdin instead).
+- `--repo owner/name` — skip git remote detection (useful in monorepos or
+  when the remote isn't GitHub).
+- `--endpoint <url>` — override the API base URL (defaults to
+  `AGENTLINT_URL` or `https://agentlint.sh`).
+- `--yes, -y` — non-interactive; fail rather than prompting.
+
+Commit `.agentlint.json` to your repo. The token itself **never** goes in
+the file — only in CI secrets / `AGENTLINT_TOKEN`.
+
+### Pushing a run
+
+```bash
+export AGENTLINT_TOKEN=agl_proj_...
+agentlint --push
+# → Pushed: https://agentlint.sh/dashboard/runs/run_abc123
+```
+
+`--push` requires either `.agentlint.json` at the repo root **or** an
+explicit `--project <id>` flag.
+
+Branch / commit metadata is resolved in this order:
+
+| Field      | Resolution order                                                                |
+| ---------- | ------------------------------------------------------------------------------- |
+| Branch     | `--branch` → `GITHUB_REF_NAME` → `git rev-parse --abbrev-ref HEAD` → `null`     |
+| Commit SHA | `--commit` → `GITHUB_SHA` → `git rev-parse HEAD` → `null`                       |
+| Endpoint   | `--url` (bare origin) → `AGENTLINT_URL` → `https://agentlint.sh`                |
 
 ### Token resolution
 
-The CLI looks for the token in this order:
+`AGENTLINT_TOKEN` env var only. (v1's `~/.config/agentlint/token` file
+fallback is removed in v2 — project tokens are short-lived and belong in
+CI secrets, not in dotfiles.)
 
-1. `AGENTLINT_TOKEN` environment variable.
-2. `~/.config/agentlint/token` (single-line file, trimmed; recommended `chmod 600`).
-
-If neither is set, `--push` prints `Push failed: no token` and exits 0. The local audit is unaffected.
-
-### Endpoint resolution
-
-1. `--url <https://...>` if it's a bare origin (no path).
-2. `AGENTLINT_URL` environment variable.
-3. Default: `https://agentlint.sh`.
-
-The `--url` flag is also used for the documentation rules' docs-site audit, so it's only treated as the push endpoint when it has no meaningful path component (e.g. `--url https://staging.agentlint.sh` works; `--url https://docs.example.com/v2` does not).
+If the env var is missing, `--push` prints
+`Push failed: Set AGENTLINT_TOKEN env var. Run \`agentlint init\` to set up.`
+and exits 0. The local audit is unaffected.
 
 ### Security model
 
-- The token is **never** passed on the command line — only via env or the token file. Argument vectors are visible in `ps`; the env and the file are not.
-- The CLI **refuses** to send the token over a non-HTTPS URL. The only exceptions are `http://localhost` and `http://127.0.0.1` (so the web side can be tested locally).
-- Failed pushes (`401`, `429`, `5xx`, network errors) print one line and **exit 0**. The local audit already succeeded; push is a side effect and must not break your CI.
+- The token is **never** passed on the command line — only via env. Argument
+  vectors are visible in `ps`; the env is not.
+- The CLI **refuses** to send the token over a non-HTTPS URL. The only
+  exceptions are `http://localhost` / `http://127.0.0.1` (so the web side can
+  be tested locally) and `AGENTLINT_INSECURE=1` for explicit opt-in.
+- Failed pushes (`401`, `429`, `5xx`, network errors) print one line and
+  **exit 0**. The local audit already succeeded; push is a side effect and
+  must not break your CI.
 - Request timeout is 15 seconds.
 
-### CI usage
+### GitHub Actions: OIDC-verified provenance
+
+If your workflow grants `id-token: write`, the CLI fetches a GitHub Actions
+OIDC token with `audience=agentlint` and forwards it in the `x-github-oidc`
+header. The server validates the JWT against GitHub's JWKS and tags the run
+`provenance: oidc-verified`, `source: ci`. Without the OIDC header (e.g.
+running locally), the server tags the run `provenance: unverified`,
+`source: local`. OIDC fetch failure is non-fatal — the push still proceeds.
 
 ```yaml
 # .github/workflows/agentlint.yml
-- name: Run agentlint
-  env:
-    AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}
-  run: npx @agentlinthq/cli --push
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  agentlint:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # required for OIDC-verified provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npx @agentlinthq/cli --push
+        env:
+          AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}
 ```
 
-Store the token as a secret. Never echo it, never commit it.
+Store the token as the `AGENTLINT_TOKEN` repo (or org) secret. Never echo it,
+never commit it.
 
 ## PR comments via the agentlint GitHub App
 
@@ -90,21 +163,6 @@ To enable:
    `GITHUB_SHA`, and `GITHUB_BASE_REF` are read directly.
 3. For other CI vendors (or to test locally), set `AGENTLINT_PR=<n>` or pass
    `--pr <n>` so the CLI attaches PR metadata to the upload.
-
-```yaml
-# Example: GitHub Actions on a PR — comment appears automatically.
-on:
-  pull_request:
-    branches: [main]
-jobs:
-  agentlint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: npx @agentlinthq/cli --push
-        env:
-          AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}
-```
 
 If the App is not installed on the repo, the score still uploads but no
 comment is posted.

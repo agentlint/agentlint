@@ -693,3 +693,224 @@ ended with exactly one `agentlint-ci[bot]` comment showing
 `score: 99 / previous: 95 / Δ: +4`. Smoke artifacts cleaned up
 afterward (PR closed, branch deleted, runs + tokens + pr_comment
 rows all empty).
+
+## ADR-0018 — v2 org-centric multi-tenant model
+
+**Date:** 2026-05-10.
+
+**Status:** Accepted. Implemented in `feat/v2-org-model` on both repos.
+
+**Context.** The slice-1-through-7 design treated the agentlint user as the
+unit of identity, ownership, and billing. Runs FK'd to `user.id`. Subscriptions
+FK'd to `user.id`. API tokens were minted per user (`agl_…`). The GitHub App
+`installation` table grafted a parallel notion of "GitHub org" on top, but it
+was a side-channel — there was no first-class agentlint organization that owned
+projects and paid the bill. Users in multiple GitHub orgs had no way to model
+that, and the personal vs. org distinction was driven entirely by whether the
+App happened to be installed.
+
+**Decision.** Adopt a first-class organization model. Every business table FKs
+to `organization.id`. The user signs in, a personal org is created on the fly,
+and the user can create more orgs or be invited into one. Projects (linked
+GitHub repos) live under an org. Tokens are minted per project, not per user.
+Runs FK to (organizationId, projectId). Stripe customer + subscription live on
+the org, not the user.
+
+Implementation choice: use the official Better-Auth `organization` plugin
+rather than hand-rolling org/member/invitation tables. The plugin already
+ships:
+
+- `organization` table (id, name, slug, logo, metadata)
+- `member` table (id, organizationId, userId, role)
+- `invitation` table (with status + expiresAt)
+- `session.activeOrganizationId` for current-org cookie
+- Client-side helpers via `better-auth/client/plugins → organizationClient`
+
+A `databaseHooks.user.create.after` callback in `lib/auth.ts` creates a default
+"Personal" org on every new sign-up so the user always has an active org to
+write into.
+
+The agentlint `stripeCustomerId` moved from `user` to `organization`. The
+checkout, portal, and webhook routes now take `{orgSlug, plan}` and resolve
+the customer via the org row.
+
+**Schema changes.** The DB was reset (single user with empty data — see the
+2026-05-10 11pm snapshot below). The fresh `0000_init_v2.sql` migration
+introduces:
+
+- `organization`, `member`, `invitation` (Better-Auth plugin tables)
+- `project` (orgId, name, repoOwner, repoName, prodBranch, githubRepoId,
+  installationId)
+- `project_token` (projectId, name, tokenHash, prefix, createdBy)
+- `run` widened with `organizationId`, `projectId`, `branch`, `commitSha`,
+  `source` (`ci` | `local`), `provenance` (`oidc-verified` | `unverified`)
+- `subscription` (org-scoped — `organizationId` not `userId`)
+- `installation` and `pr_comment` retained unchanged (GitHub App still mints
+  installation tokens for PR-comment writes)
+
+The legacy user-scoped `apiToken` (`agl_…`, 56 chars) is dropped. The new
+project token uses prefix `agl_proj_` (61 chars). Tokens never live in the
+checked-in `.agentlint.json` config — they belong in `AGENTLINT_TOKEN` env
+secrets.
+
+**Public/breaking impact.** Any consumer of the v1 `/api/runs` ingest with a
+user-scoped `agl_…` token must rotate: revoke the old token, link the repo as
+a project, mint an `agl_proj_…` token, set it as `AGENTLINT_TOKEN`. The badge
+endpoint still works (resolves project by repoOwner/repoName) but it only
+returns scores for runs marked `public=true`.
+
+**Consequences.**
+
+- Multi-tenant safety becomes a query-shape rule: every business query MUST
+  include an `organizationId` predicate (or a join through `project`).
+  Forgetting it is a privacy bug.
+- The Better-Auth `databaseHooks` API is the integration point for "always
+  ensure an org exists for this user." If Better-Auth ever changes the hook
+  signature, default-org creation is the canary.
+- Cancelling `GitHub App` install no longer auto-suspends runs — the org
+  retains its data and its projects. A separate explicit "delete project"
+  flow handles cleanup.
+
+**Why not a custom org model?** Three weeks of plumbing we'd ship slowly.
+Better-Auth's plugin is battle-tested, includes the invitation flow, and
+exposes a clean client surface (`organization.create`, `organization.invite`,
+etc.). The cost is one extra dependency; the win is shipping in one session
+instead of three.
+
+## ADR-0019 — CLI runs in CI; no server-side scans
+
+**Date:** 2026-05-10.
+
+**Status:** Accepted. Server-side scan code removed from the web repo
+(`lib/scan/run-scan.ts` and `handlePushEvent` deleted, including the tarball
+extraction path that ADR-0017 patched).
+
+**Context.** Slice 8 (commits `c503a3e…b98cd69`) shipped a server-side scan
+path: on a `push` webhook, the web server cloned the repo, ran agentlint in
+a Vercel function, and wrote the run with the GitHub org attribution. The
+goal was zero-config — install the App and runs just appear.
+
+Three problems:
+
+1. **Hot-path infrastructure cost.** Cloning + scanning runs on Vercel
+   serverless. Slow (8+ seconds), expensive (function memory + bundle), and
+   limited by the platform's `outputFileTracingIncludes` machinery. We
+   shipped four `next.config.ts` workarounds in a row to keep the function
+   bundle resolvable (ADR-0017's tarball fallback was the last).
+2. **Trust model.** Server-side scans rely on the agentlint binary in the
+   function bundle. Pinning a CLI version inside the web bundle means
+   every CLI release requires a coordinated web redeploy.
+3. **Customer impedance.** Real teams want to plug agentlint into their
+   *existing* CI (Actions, CircleCI, GitHub Actions matrix) where they
+   already have caches, secrets, and environment parity. Running scans on
+   our infra duplicates that work.
+
+**Decision.** Stop scanning on the server. The CLI runs wherever the team
+prefers (CI or laptop) and POSTs scan results to `/api/runs` with a project
+token. Provenance is a separate signal:
+
+- If `GITHUB_ACTIONS=true`, the CLI fetches the workflow's OIDC ID token
+  from `$ACTIONS_ID_TOKEN_REQUEST_URL` + `$ACTIONS_ID_TOKEN_REQUEST_TOKEN`,
+  audience `agentlint`. The server verifies the JWT against GitHub's JWKS
+  and checks `claims.repository == projectRow.repoOwner/repoName`. If
+  valid: `source = ci`, `provenance = oidc-verified`.
+- If no OIDC token is presented (local laptop, or CI without the
+  `id-token: write` permission), the server stores `source = local`,
+  `provenance = unverified`. The dashboard renders the badge.
+
+Local runs are accepted as-is. We do not gate ingest on provenance. The
+dashboard shows the provenance label so consumers can decide.
+
+**What stays on the App webhook.** The `installation`, `installation_repositories`,
+and `installation.suspend`/`unsuspend` events still update the `installation`
+table — we need installation IDs to mint short-lived tokens for posting PR
+comments. PR comments themselves still trigger from `/api/runs` ingest when
+the project has a connected installation. The `push` event handler is now a
+no-op.
+
+**Consequences.**
+
+- Vercel function bundles shrink dramatically (no `@agentlinthq/cli` in
+  `dependencies`, no `tar`, no `outputFileTracingIncludes` complexity).
+- `next.config.ts` returns to the default. ADR-0014's `serverExternalPackages`
+  workaround is no longer needed.
+- CLI bumps to v2.0.0 with a new payload shape and the `init` subcommand.
+- Customers see a clear setup path: install App on the org (for PR comments)
+  → link a project → mint a token → drop it into CI.
+
+## ADR-0020 — `.agentlint.json` is checked in; tokens are not
+
+**Date:** 2026-05-10.
+
+**Status:** Accepted.
+
+**Context.** With per-project tokens, we need a way for the CLI to know
+"this checkout is project X under org Y." Options: command-line flags every
+time, a CI-only env var, or a checked-in config file.
+
+**Decision.** Use a checked-in `.agentlint.json` at repo root.
+
+```json
+{
+  "version": 1,
+  "projectId": "01J…",
+  "orgSlug": "agentlint",
+  "repoOwner": "agentlint",
+  "repoName": "agentlint",
+  "prodBranch": "main"
+}
+```
+
+- `projectId` and `orgSlug` identify which dashboard the run lands in.
+- `repoOwner` / `repoName` echo GitHub identity (useful for offline reports
+  and for human readers).
+- `prodBranch` lets the CLI default `--branch` resolution.
+- The file is human-editable and reviewable in PRs.
+
+**Crucially: the token is NOT in this file.** Tokens come from
+`AGENTLINT_TOKEN` env. In CI: a GitHub Actions secret. Locally: a developer's
+shell env. Leaking the config file is fine; leaking the token is not.
+
+**Why a JSON file, not `.env`?** Two reasons. (1) JSON forces structured
+values that the CLI validates with Zod-equivalent shape checks. (2) `.env` is
+gitignored by convention; `.agentlint.json` is meant to be checked in.
+
+## ADR-0021 — Branch protection: PR-only main on agentlint-sh
+
+**Date:** 2026-05-10.
+
+**Status:** Accepted, partial enforcement (see below).
+
+**Context.** The CLI repo (public) and the website repo (private) had
+identical loose policies: any push to main was accepted. As the project moves
+toward paying customers, mainline integrity matters more, and Vercel preview
+deployments give us a free pre-merge verification step.
+
+**Decision.** All changes land on `main` only through a pull request from
+either `dev` (long-lived integration branch) or `feat/*` (short-lived
+feature branches). Direct pushes to main are forbidden.
+
+Enforcement on the **CLI repo** (public): GitHub branch protection on
+`main` requiring (a) PR, (b) status check `ci` green, (c) up-to-date with
+base. Force-push and deletion blocked. Configured via `gh api PUT
+/repos/agentlint/agentlint/branches/main/protection` — public repos on
+GitHub Free can use branch protection.
+
+Enforcement on the **website repo** (private): GitHub Free does NOT permit
+branch protection or rulesets on private repos (HTTP 403 from the API). As
+a fallback we run two belt-and-suspenders checks:
+
+1. **Local `pre-push` hook** at `.githooks/pre-push` — refuses to push to
+   `main`. Enable per clone: `git config core.hooksPath .githooks`.
+2. **CI workflow** `.github/workflows/branch-policy.yml` — fails when a push
+   lands on `main` whose head commit message doesn't include `(#NN)` (the
+   GitHub squash/merge-commit marker). Cannot revert the push, but flags
+   the breach in the actions tab and via email.
+
+If the website repo flips to public, or we upgrade to GitHub Pro, swap the
+fallback for first-class branch protection. The husky hook and workflow can
+stay — they're cheap redundancy.
+
+**Consequence.** All future website work goes `feat/x → dev → main`. Vercel
+preview deploys give us the pre-merge gate. The branch policy notebook in
+PLAYBOOK.md walks through the flow.

@@ -1,65 +1,50 @@
-// Token resolver for `agentlint --push`.
+// Token resolver for `agentlint --push` (v2).
 //
-// Resolution order:
-//   1. AGENTLINT_TOKEN env var
-//   2. ~/.config/agentlint/token (single line, trimmed)
+// v2 is project-scoped: the token is generated against a specific project on
+// the agentlint.sh dashboard and lives only in the user's CI secrets or
+// shell env. There is no on-disk fallback any more — see CHANGELOG 2.0.0
+// and AGENTS.md for the rationale (project tokens are short, rotated, and
+// the file-storage flow encouraged committing secrets into dotfiles).
 //
-// Returns null if neither is set. Pure-ish: takes its env getter and file
-// reader as parameters so tests can drive both branches deterministically.
-// Mirrors the dependency-injection style of tools/leaderboard/src/fetch-repos.ts.
+// Tokens are expected to be prefixed `agl_proj_` and 61 chars total, but the
+// CLI does not enforce that here: the server is the source of truth, and we
+// don't want to break legitimate tokens during a server-side prefix change.
 //
 // Local-first invariant (CHARTER §3): this function never throws, never logs
 // the token, and only reads from explicitly opt-in locations.
 
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 export const TOKEN_ENV_VAR = "AGENTLINT_TOKEN";
 
 export type GetEnvFn = (name: string) => string | undefined;
-export type ReadFileFn = (path: string) => Promise<string>;
 
 export interface ResolveTokenOptions {
   getEnv?: GetEnvFn;
-  readFileFn?: ReadFileFn;
-  homeDir?: string;
 }
 
 /**
- * Resolve the agentlint API token. Returns null when no token is configured.
+ * Resolve the agentlint project token from `AGENTLINT_TOKEN`. Returns null
+ * when the env var is missing or whitespace-only.
  *
- * Never throws. A missing/unreadable token file is treated as "no token",
- * not as a fatal error.
+ * Never throws. The caller decides how to surface "no token" — usually by
+ * printing a one-line message that points at `agentlint init`.
  */
 export async function resolveToken(
   opts: ResolveTokenOptions = {},
 ): Promise<string | null> {
   const getEnv = opts.getEnv ?? ((name: string) => process.env[name]);
-  const readFileFn =
-    opts.readFileFn ?? ((path: string) => readFile(path, "utf-8"));
-  const home = opts.homeDir ?? homedir();
 
   const fromEnv = getEnv(TOKEN_ENV_VAR);
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim();
   }
 
-  const tokenPath = join(home, ".config", "agentlint", "token");
-  try {
-    const contents = await readFileFn(tokenPath);
-    const trimmed = contents.trim();
-    if (trimmed.length > 0) return trimmed;
-    return null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 /**
- * Path the token file is read from. Exposed for documentation / error
- * messages; tests don't need it because they inject `homeDir`.
+ * Human-readable hint shown when no token is available. Centralized here so
+ * the wording stays consistent between `--push` and `init`.
  */
-export function tokenFilePath(home: string = homedir()): string {
-  return join(home, ".config", "agentlint", "token");
+export function missingTokenMessage(): string {
+  return `Set ${TOKEN_ENV_VAR} env var. Run \`agentlint init\` to set up.`;
 }

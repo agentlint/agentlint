@@ -1,4 +1,4 @@
-import type { ProjectMeta, ScanContext } from "@agentlint/core";
+import type { ProjectMeta, ScanContext } from "@agentlinthq/core";
 
 interface MockOpts {
   files?: Record<string, string>;

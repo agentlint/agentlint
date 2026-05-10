@@ -1,4 +1,4 @@
-# @agentlint/core
+# @agentlinthq/core
 
 Pure types and score calculator for [agentlint](https://github.com/agentlint/agentlint).
 
@@ -11,14 +11,14 @@ library that consumes pre-collected results.
 ## Install
 
 ```bash
-pnpm add @agentlint/core
+pnpm add @agentlinthq/core
 ```
 
 ## Usage
 
 ```ts
-import { buildReport, registerRuleCategory } from "@agentlint/core";
-import type { Result, Rule } from "@agentlint/core";
+import { buildReport, registerRuleCategory } from "@agentlinthq/core";
+import type { Result, Rule } from "@agentlinthq/core";
 
 // Compute a score from already-collected results.
 const report = buildReport({
@@ -29,10 +29,10 @@ const report = buildReport({
 console.log(report.score); // 0..100
 ```
 
-For the full CLI experience, install [`@agentlint/cli`](https://www.npmjs.com/package/@agentlint/cli) instead:
+For the full CLI experience, install [`@agentlinthq/cli`](https://www.npmjs.com/package/@agentlinthq/cli) instead:
 
 ```bash
-npx @agentlint/cli
+npx @agentlinthq/cli
 ```
 
 ## License

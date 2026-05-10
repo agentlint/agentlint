@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { ProjectMeta, ScanContext } from "@agentlint/core";
+import type { ProjectMeta, ScanContext } from "@agentlinthq/core";
 import fg from "fast-glob";
 
 export async function createScanContext(args: {

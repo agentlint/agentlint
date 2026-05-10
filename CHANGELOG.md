@@ -9,14 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial public release.
 
-> The CLI is published as **`@agentlint/cli`** because the unscoped
-> `agentlint` name on npm is held by an unrelated package
-> ([ADR-0011](./docs/DECISIONS.md#adr-0011--publish-cli-as-agentlintcli-the-unscoped-agentlint-is-taken)).
+> The CLI is published as **`@agentlinthq/cli`** because the unscoped
+> `agentlint` name and the `agentlint` npm org name are both held by an
+> unrelated package
+> ([ADR-0011](./docs/DECISIONS.md#adr-0011--publish-under-agentlinthq-org-scope-the-unscoped-agentlint-and-the-org-name-agentlint-are-both-taken)).
 > The installed binary is still `agentlint`.
 
 ### Added
 
-- `@agentlint/cli`: scan any repository against ~30 checks across 5 categories
+- `@agentlinthq/cli`: scan any repository against ~30 checks across 5 categories
   (discoverability, buildability, conventions, documentation, safety).
 - 0–100 agent-readiness score, renormalized against applicable categories
   ([ADR-0003](./docs/DECISIONS.md#adr-0003--score-formula-renormalized-to-0100)).
@@ -28,7 +29,7 @@ Initial public release.
 - Optional documentation-surface scan via `--url <docs-url>`; skipped when
   not provided.
 - Exit code 1 when score falls below 80, suitable as a CI gate.
-- `@agentlint/core`: pure types and score calculator with no IO, useful for
+- `@agentlinthq/core`: pure types and score calculator with no IO, useful for
   custom runners and future hosted dashboards.
 
 ### Project
@@ -41,5 +42,5 @@ Initial public release.
 [1.0.0]: https://github.com/agentlint/agentlint/releases/tag/v1.0.0
 
 <!-- npm packages: -->
-<!-- @agentlint/cli — https://www.npmjs.com/package/@agentlint/cli -->
-<!-- @agentlint/core — https://www.npmjs.com/package/@agentlint/core -->
+<!-- @agentlinthq/cli — https://www.npmjs.com/package/@agentlinthq/cli -->
+<!-- @agentlinthq/core — https://www.npmjs.com/package/@agentlinthq/core -->

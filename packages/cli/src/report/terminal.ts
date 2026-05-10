@@ -1,4 +1,4 @@
-import type { Category, Report } from "@agentlint/core";
+import type { Category, Report } from "@agentlinthq/core";
 import pc from "picocolors";
 
 const CATEGORY_LABELS: Record<Category, string> = {

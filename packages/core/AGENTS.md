@@ -1,12 +1,12 @@
-# AGENTS.md — @agentlint/core
+# AGENTS.md — @agentlinthq/core
 
 This package is **pure** — no IO, no fetch, no fs. Just types and pure functions.
 
 ## Build, test
 
 ```bash
-pnpm --filter @agentlint/core build
-pnpm --filter @agentlint/core test
+pnpm --filter @agentlinthq/core build
+pnpm --filter @agentlinthq/core test
 ```
 
 ## Conventions

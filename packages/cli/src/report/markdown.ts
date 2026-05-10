@@ -1,4 +1,4 @@
-import type { Category, Report } from "@agentlint/core";
+import type { Category, Report } from "@agentlinthq/core";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   discoverability: "Discoverability",

@@ -5,38 +5,38 @@
 ## Quick start
 
 ```bash
-npx @agentlint/cli
+npx @agentlinthq/cli
 ```
 
 That's it. No install, no signup. Drop the command into any repo and you'll get a colored report in your terminal plus a full HTML report on disk.
 
 ```bash
 # Scan the current directory
-npx @agentlint/cli
+npx @agentlinthq/cli
 
 # Scan a different path
-npx @agentlint/cli ./packages/api
+npx @agentlinthq/cli ./packages/api
 
 # Machine-readable output for CI or for AI agents to parse
-npx @agentlint/cli --json > report.json
+npx @agentlinthq/cli --json > report.json
 
 # Markdown report for AI agents to consume directly
-npx @agentlint/cli --markdown
+npx @agentlinthq/cli --markdown
 
 # Also audit the docs site
-npx @agentlint/cli --url https://docs.example.com
+npx @agentlinthq/cli --url https://docs.example.com
 ```
 
 Or install once and use the short command:
 
 ```bash
-npm i -g @agentlint/cli
+npm i -g @agentlinthq/cli
 agentlint
 ```
 
-End-users invoke it via `npx`/`pnpm dlx`/`bunx` regardless of what package manager their project uses — the published `@agentlint/cli` package is universal.
+End-users invoke it via `npx`/`pnpm dlx`/`bunx` regardless of what package manager their project uses — the published `@agentlinthq/cli` package is universal.
 
-> **Note on the name.** The unscoped `agentlint` name on npm is held by an unrelated package. The CLI is published as `@agentlint/cli`; the binary it installs is still `agentlint`.
+> **Note on the name.** The unscoped `agentlint` name on npm is held by an unrelated package, and the matching org name was not available either, so the npm org is `agentlinthq`. The CLI is published as `@agentlinthq/cli`; the binary it installs is still `agentlint`. See [ADR-0011](./docs/DECISIONS.md#adr-0011--publish-under-agentlinthq-org-scope-the-unscoped-agentlint-and-the-org-name-agentlint-are-both-taken).
 
 ## Why this exists
 

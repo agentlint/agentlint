@@ -114,7 +114,7 @@ reports as input to their own loops. Both are first-class.
 writes `agentlint-report.html` to disk. `--json` and `--markdown` go to
 stdout, suppressing the terminal report so they're trivially pipeable.
 
-**Why.** The first run is almost always a human running `npx @agentlint/cli`.
+**Why.** The first run is almost always a human running `npx @agentlinthq/cli`.
 That experience needs to be delightful — color, scores, and an HTML
 file you can drop into a browser. Agents reading the report explicitly
 ask for `--json` or `--markdown`, and `agentlint --json > report.json`
@@ -154,7 +154,7 @@ publishes resolved versions on `publish`.
 
 **Why.** pnpm has the cleanest workspace story today, the fastest
 installs, and rewrites `workspace:*` to resolved versions on publish
-(critical for `agentlint` shipping a real `@agentlint/core` dep). bun
+(critical for `agentlint` shipping a real `@agentlinthq/core` dep). bun
 is tempting but less battle-tested for publishing dual-package
 monorepos. yarn-berry is fine but has more configuration surface than
 pnpm. npm workspaces still trail pnpm on speed and the `workspace:*`
@@ -179,7 +179,7 @@ mental model. Vitest is the natural fit for an ESM TypeScript codebase
 and is faster than Jest for this size of project. The combination
 requires zero plugins for our stack.
 
-## ADR-0008 — Monorepo split: `@agentlint/core` (pure, no IO) and `agentlint` (CLI)
+## ADR-0008 — Monorepo split: `@agentlinthq/core` (pure, no IO) and `agentlint` (CLI)
 
 **Date:** 2026-05-09
 **Status:** accepted
@@ -255,36 +255,45 @@ append-only by definition. Mashing them together hides which is stable
 and which is volatile, which makes them less trustworthy at the start
 of a new session.
 
-## ADR-0011 — Publish CLI as `@agentlint/cli`; the unscoped `agentlint` is taken
+## ADR-0011 — Publish under `@agentlinthq` org scope; the unscoped `agentlint` and the org name `agentlint` are both taken
 
 **Date:** 2026-05-09
 **Status:** accepted
 
 **Context.** When we went to publish v1.0.0 to npm we discovered that
-the unscoped name `agentlint` is already held by an unrelated package
+the unscoped name `agentlint` is held by an unrelated package
 (`agentlint@0.3.0` by `akz4ol`, "Static analysis and security scanner
-for AI agent configuration files"). We could not claim it.
+for AI agent configuration files"). We tried to create the `@agentlint`
+scope by registering an npm organization named `agentlint` — npm
+rejected the org name because it conflicts with the existing package.
+npm also no longer issues classic automation tokens for new accounts;
+granular access tokens cannot create scopes that don't already exist
+as orgs.
 
 **Options.**
 - (a) Rename the project away from "agentlint" entirely (e.g.,
-  `agentaudit`, `aglint`).
-- (b) Publish the CLI as `@agentlint/cli` under our own scope. Both
-  packages live in the `@agentlint` org. The bin remains `agentlint`.
-- (c) Pursue an npm dispute or contact the existing owner to negotiate a
-  transfer. Slow, uncertain, and the existing package occupies a similar
-  domain so they may decline.
+  `agentaudit`, `aglint`). The unscoped `aglint` is also already taken.
+- (b) Publish under a related but available org name. Tried
+  `agentlinthq` (HQ-suffix pattern, matches `@notionhq/*`,
+  `@vercel/...` style orgs). Available. Created.
+- (c) Pursue an npm dispute or contact the existing `agentlint` owner
+  to negotiate a transfer. Slow, uncertain, and the existing package
+  occupies a similar domain so they may decline.
 
-**Choice.** (b). The npm install command becomes
-`npx @agentlint/cli` (or `npm i -g @agentlint/cli` followed by
-`agentlint`).
+**Choice.** (b). Org `agentlinthq` on npm. Packages: `@agentlinthq/cli`
+and `@agentlinthq/core`. The npm install command is
+`npx @agentlinthq/cli` (or `npm i -g @agentlinthq/cli` followed by
+`agentlint` — bin name preserved).
 
 **Why.** The brand identity, the GitHub org, the (future) domain, the
 binary name, and the rubric scoring API are all "agentlint". Renaming
 the project (a) would invalidate documentation, marketing copy, and
 repo URLs for marginal install-line ergonomics. (c) is a dependency on
 an external party we can't time. (b) preserves everything that matters
-publicly with one extra slash in the install command; that cost is
-small and easy to explain. Some prior art for the pattern: `@biomejs/biome`,
-`@types/*`, `@swc/cli`. We document the discrepancy openly in the
-README so users aren't surprised, and we leave the door open to claim
-the unscoped name later if it becomes available.
+publicly with one extra `hq` in the install command. The HQ suffix has
+strong prior art for "official org of project X" (`@notionhq/client`).
+The npm org also gives us a real shared namespace that future human or
+agent maintainers can be invited into. We document the discrepancy
+openly in the README so users aren't surprised, and we leave the door
+open to claim the bare `agentlint` scope later if the unscoped package
+is ever released.

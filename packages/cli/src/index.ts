@@ -2,7 +2,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { buildReport, registerRuleCategory } from "@agentlint/core";
+import { buildReport, registerRuleCategory } from "@agentlinthq/core";
 import { renderHtml } from "./report/html.js";
 import { renderJson } from "./report/json.js";
 import { renderMarkdown } from "./report/markdown.js";

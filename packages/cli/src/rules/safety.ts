@@ -1,4 +1,4 @@
-import type { Rule } from "@agentlint/core";
+import type { Rule } from "@agentlinthq/core";
 import { fail, findAgentsMd, hasSection, pass, warn } from "./_helpers.js";
 
 export const agentsMdOffLimits: Rule = {

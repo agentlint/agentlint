@@ -21,7 +21,7 @@
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` — see [GitHub Actions](https://github.com/agentlint/agentlint/actions) |
 | Repository | https://github.com/agentlint/agentlint (public, MIT) |
-| npm package | **publishing** — `@agentlint/cli` and `@agentlint/core`. Unscoped `agentlint` is held by an unrelated package — see ADR-0011 |
+| npm package | **publishing** — `@agentlinthq/cli` and `@agentlinthq/core`. Unscoped `agentlint` is held by an unrelated package — see ADR-0011 |
 | Domain | **not registered yet** — `agentlint.dev` planned |
 | Landing page | not built |
 
@@ -56,7 +56,7 @@ walk it top to bottom unless the human redirects.
 ### P0 — needed before public launch
 
 1. **Reserve npm package names.** Publish placeholder `0.1.0` for
-   `@agentlint/core` and `agentlint` to claim the names before someone else
+   `@agentlinthq/core` and `agentlint` to claim the names before someone else
    does. Requires the human to log into npm and provide a 2FA OTP. The
    agent prepares the release commit, the changelog, and the publish
    command per [`PLAYBOOK.md`](./PLAYBOOK.md#publishing-to-npm). **Blocker:
@@ -73,7 +73,7 @@ walk it top to bottom unless the human redirects.
 ### P1 — pre-1.0 polish
 
 4. **Landing page** at `agentlint.dev`. Single-page Next.js: hero
-   (`npx @agentlint/cli`), three value props, terminal demo, pricing teaser,
+   (`npx @agentlinthq/cli`), three value props, terminal demo, pricing teaser,
    footer. Hosted on Vercel. New repo `agentlint/agentlint.dev`. Agent
    builds; human approves copy and provisions Vercel project.
 5. **Leaderboard launch asset.** Script that scans top-1000 GitHub repos by

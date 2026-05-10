@@ -1,4 +1,4 @@
-import type { Rule } from "@agentlint/core";
+import type { Rule } from "@agentlinthq/core";
 import { fail, findAgentsMd, hasSection, pass } from "./_helpers.js";
 
 export const linterConfig: Rule = {

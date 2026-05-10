@@ -1,4 +1,4 @@
-import type { Rule } from "@agentlint/core";
+import type { Rule } from "@agentlinthq/core";
 import { fail, pass, skip, warn } from "./_helpers.js";
 
 /**

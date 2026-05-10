@@ -1,4 +1,4 @@
-import type { Rule } from "@agentlint/core";
+import type { Rule } from "@agentlinthq/core";
 import { buildabilityRules } from "./buildability.js";
 import { conventionsRules } from "./conventions.js";
 import { discoverabilityRules } from "./discoverability.js";

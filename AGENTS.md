@@ -42,7 +42,7 @@ packages/
 
 - Language: TypeScript strict mode. No `any` without a `// reason:` comment.
 - Naming: kebab-case for files, PascalCase for types, camelCase for functions and variables.
-- Imports: workspace imports use `@agentlint/core`. Never deep-import.
+- Imports: workspace imports use `@agentlinthq/core`. Never deep-import.
 - Errors: rules never throw — they catch internally and return a `Result` with status `fail`. The runner wraps `check()` in a try/catch as a last resort.
 - Commits: Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
 - Tests: every rule should have a test covering pass, fail, and skip cases.
@@ -68,7 +68,7 @@ Never commit `.env*` files. The CLI is local-first; nothing requires secrets at 
 
 ## Gotchas
 
-- The CLI is published as `@agentlint/cli` on npm; the unscoped `agentlint` is held by an unrelated package (see [ADR-0011](./docs/DECISIONS.md#adr-0011--publish-cli-as-agentlintcli-the-unscoped-agentlint-is-taken)). The installed binary is still `agentlint`. The core package is `@agentlint/core`. The workspace name is `agentlint-monorepo`.
+- The CLI is published as `@agentlinthq/cli` on npm; the unscoped `agentlint` and the `agentlint` org name are both unavailable (see [ADR-0011](./docs/DECISIONS.md#adr-0011--publish-under-agentlinthq-org-scope-the-unscoped-agentlint-and-the-org-name-agentlint-are-both-taken)). The installed binary is still `agentlint`. The core package is `@agentlinthq/core`. The workspace name is `agentlint-monorepo`.
 - This repo uses `pnpm`, not npm. The `workspace:*` protocol in package.json only resolves under pnpm/yarn-berry; running `npm install` will fail.
 - `fast-glob` patterns are case-sensitive on Linux/CI but case-insensitive on macOS — tests that depend on filename casing must account for this.
 - The HTML reporter is self-contained: no external CSS, no fonts, no JS. Reports must work offline. Don't add `<link>` or `<script src="...">` tags.

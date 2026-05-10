@@ -1,5 +1,5 @@
 {
-  "name": "@agentlint/core",
+  "name": "@agentlinthq/core",
   "version": "1.0.0",
   "description": "Pure types and score calculator for agentlint. The Lighthouse for AI coding agents.",
   "type": "module",

@@ -1,4 +1,4 @@
-import type { Result, ScanContext } from "@agentlint/core";
+import type { Result, ScanContext } from "@agentlinthq/core";
 
 /** Quick result builders to keep rule files compact. */
 export const pass = (

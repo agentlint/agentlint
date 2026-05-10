@@ -102,11 +102,15 @@ that case:
 agentlint is published from this monorepo as two packages:
 
 - `@agentlint/core` (public)
-- `agentlint` (public, the CLI)
+- `@agentlint/cli` (public, the CLI; binary is still named `agentlint`)
 
 `pnpm publish` rewrites `workspace:*` to resolved versions automatically,
-so consumers of `agentlint` get a normal published `@agentlint/core`
+so consumers of `@agentlint/cli` get a normal published `@agentlint/core`
 dependency.
+
+> **Why scoped names.** The unscoped `agentlint` was already taken on npm by
+> an unrelated package when we went to publish; see ADR-0011. The brand,
+> the bin, the docs site, and the GitHub org all stay `agentlint`.
 
 ### Pre-flight
 
@@ -164,7 +168,7 @@ cd ../..
 1. Verify install:
    ```bash
    cd /tmp && mkdir agentlint-smoke && cd agentlint-smoke
-   pnpm dlx agentlint@X.Y.Z --version
+   pnpm dlx @agentlint/cli@X.Y.Z --version
    ```
 2. Create a GitHub Release for `vX.Y.Z` with the changelog section as the
    body. The agent uses `gh release create`.
@@ -212,7 +216,7 @@ are.
 The agent prepares all of the following in `docs/drafts/release-vX.Y.Z/`:
 
 1. **Tweet / X thread.** 1 hook tweet, 3–5 follow-ups. Lead with the
-   command (`npx agentlint`), show a screenshot or terminal recording of
+   command (`npx @agentlint/cli`), show a screenshot or terminal recording of
    a fresh report.
 2. **HN submission.** Title under 80 chars. URL: agentlint.dev or the
    relevant blog post. First comment as the OP, written in the project's

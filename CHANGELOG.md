@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial public release.
 
+> The CLI is published as **`@agentlint/cli`** because the unscoped
+> `agentlint` name on npm is held by an unrelated package
+> ([ADR-0011](./docs/DECISIONS.md#adr-0011--publish-cli-as-agentlintcli-the-unscoped-agentlint-is-taken)).
+> The installed binary is still `agentlint`.
+
 ### Added
 
-- `agentlint` CLI: scan any repository against ~30 checks across 5 categories
+- `@agentlint/cli`: scan any repository against ~30 checks across 5 categories
   (discoverability, buildability, conventions, documentation, safety).
 - 0–100 agent-readiness score, renormalized against applicable categories
   ([ADR-0003](./docs/DECISIONS.md#adr-0003--score-formula-renormalized-to-0100)).
@@ -34,3 +39,7 @@ Initial public release.
 - Self-audit: the repository scores 100/100 on its own rubric.
 
 [1.0.0]: https://github.com/agentlint/agentlint/releases/tag/v1.0.0
+
+<!-- npm packages: -->
+<!-- @agentlint/cli — https://www.npmjs.com/package/@agentlint/cli -->
+<!-- @agentlint/core — https://www.npmjs.com/package/@agentlint/core -->

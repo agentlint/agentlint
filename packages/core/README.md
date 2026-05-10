@@ -29,10 +29,10 @@ const report = buildReport({
 console.log(report.score); // 0..100
 ```
 
-For the full CLI experience, install [`agentlint`](https://www.npmjs.com/package/agentlint) instead:
+For the full CLI experience, install [`@agentlint/cli`](https://www.npmjs.com/package/@agentlint/cli) instead:
 
 ```bash
-npx agentlint
+npx @agentlint/cli
 ```
 
 ## License

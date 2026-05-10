@@ -5,29 +5,38 @@
 ## Quick start
 
 ```bash
-npx agentlint
+npx @agentlint/cli
 ```
 
 That's it. No install, no signup. Drop the command into any repo and you'll get a colored report in your terminal plus a full HTML report on disk.
 
 ```bash
 # Scan the current directory
-npx agentlint
+npx @agentlint/cli
 
 # Scan a different path
-npx agentlint ./packages/api
+npx @agentlint/cli ./packages/api
 
 # Machine-readable output for CI or for AI agents to parse
-npx agentlint --json > report.json
+npx @agentlint/cli --json > report.json
 
 # Markdown report for AI agents to consume directly
-npx agentlint --markdown
+npx @agentlint/cli --markdown
 
 # Also audit the docs site
-npx agentlint --url https://docs.example.com
+npx @agentlint/cli --url https://docs.example.com
 ```
 
-End-users invoke it via `npx`/`pnpm dlx`/`bunx` regardless of what package manager their project uses — the published `agentlint` package is universal.
+Or install once and use the short command:
+
+```bash
+npm i -g @agentlint/cli
+agentlint
+```
+
+End-users invoke it via `npx`/`pnpm dlx`/`bunx` regardless of what package manager their project uses — the published `@agentlint/cli` package is universal.
+
+> **Note on the name.** The unscoped `agentlint` name on npm is held by an unrelated package. The CLI is published as `@agentlint/cli`; the binary it installs is still `agentlint`.
 
 ## Why this exists
 

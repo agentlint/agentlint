@@ -114,7 +114,7 @@ reports as input to their own loops. Both are first-class.
 writes `agentlint-report.html` to disk. `--json` and `--markdown` go to
 stdout, suppressing the terminal report so they're trivially pipeable.
 
-**Why.** The first run is almost always a human running `npx agentlint`.
+**Why.** The first run is almost always a human running `npx @agentlint/cli`.
 That experience needs to be delightful — color, scores, and an HTML
 file you can drop into a browser. Agents reading the report explicitly
 ask for `--json` or `--markdown`, and `agentlint --json > report.json`
@@ -254,3 +254,37 @@ project encounters new operational situations. `DECISIONS` is
 append-only by definition. Mashing them together hides which is stable
 and which is volatile, which makes them less trustworthy at the start
 of a new session.
+
+## ADR-0011 — Publish CLI as `@agentlint/cli`; the unscoped `agentlint` is taken
+
+**Date:** 2026-05-09
+**Status:** accepted
+
+**Context.** When we went to publish v1.0.0 to npm we discovered that
+the unscoped name `agentlint` is already held by an unrelated package
+(`agentlint@0.3.0` by `akz4ol`, "Static analysis and security scanner
+for AI agent configuration files"). We could not claim it.
+
+**Options.**
+- (a) Rename the project away from "agentlint" entirely (e.g.,
+  `agentaudit`, `aglint`).
+- (b) Publish the CLI as `@agentlint/cli` under our own scope. Both
+  packages live in the `@agentlint` org. The bin remains `agentlint`.
+- (c) Pursue an npm dispute or contact the existing owner to negotiate a
+  transfer. Slow, uncertain, and the existing package occupies a similar
+  domain so they may decline.
+
+**Choice.** (b). The npm install command becomes
+`npx @agentlint/cli` (or `npm i -g @agentlint/cli` followed by
+`agentlint`).
+
+**Why.** The brand identity, the GitHub org, the (future) domain, the
+binary name, and the rubric scoring API are all "agentlint". Renaming
+the project (a) would invalidate documentation, marketing copy, and
+repo URLs for marginal install-line ergonomics. (c) is a dependency on
+an external party we can't time. (b) preserves everything that matters
+publicly with one extra slash in the install command; that cost is
+small and easy to explain. Some prior art for the pattern: `@biomejs/biome`,
+`@types/*`, `@swc/cli`. We document the discrepancy openly in the
+README so users aren't surprised, and we leave the door open to claim
+the unscoped name later if it becomes available.

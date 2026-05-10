@@ -68,7 +68,7 @@ Never commit `.env*` files. The CLI is local-first; nothing requires secrets at 
 
 ## Gotchas
 
-- The CLI is published as `agentlint` on npm; the workspace name is also `agentlint`. The core package is `@agentlint/core`.
+- The CLI is published as `@agentlint/cli` on npm; the unscoped `agentlint` is held by an unrelated package (see [ADR-0011](./docs/DECISIONS.md#adr-0011--publish-cli-as-agentlintcli-the-unscoped-agentlint-is-taken)). The installed binary is still `agentlint`. The core package is `@agentlint/core`. The workspace name is `agentlint-monorepo`.
 - This repo uses `pnpm`, not npm. The `workspace:*` protocol in package.json only resolves under pnpm/yarn-berry; running `npm install` will fail.
 - `fast-glob` patterns are case-sensitive on Linux/CI but case-insensitive on macOS — tests that depend on filename casing must account for this.
 - The HTML reporter is self-contained: no external CSS, no fonts, no JS. Reports must work offline. Don't add `<link>` or `<script src="...">` tags.

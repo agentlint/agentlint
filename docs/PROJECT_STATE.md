@@ -21,7 +21,7 @@
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` — see [GitHub Actions](https://github.com/agentlint/agentlint/actions) |
 | Repository | https://github.com/agentlint/agentlint (public, MIT) |
-| npm package | **not published yet** — `agentlint` and `@agentlint/core` names not yet claimed |
+| npm package | **publishing** — `@agentlint/cli` and `@agentlint/core`. Unscoped `agentlint` is held by an unrelated package — see ADR-0011 |
 | Domain | **not registered yet** — `agentlint.dev` planned |
 | Landing page | not built |
 
@@ -73,7 +73,7 @@ walk it top to bottom unless the human redirects.
 ### P1 — pre-1.0 polish
 
 4. **Landing page** at `agentlint.dev`. Single-page Next.js: hero
-   (`npx agentlint`), three value props, terminal demo, pricing teaser,
+   (`npx @agentlint/cli`), three value props, terminal demo, pricing teaser,
    footer. Hosted on Vercel. New repo `agentlint/agentlint.dev`. Agent
    builds; human approves copy and provisions Vercel project.
 5. **Leaderboard launch asset.** Script that scans top-1000 GitHub repos by

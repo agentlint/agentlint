@@ -31,7 +31,7 @@
     "developer-tools",
     "ci"
   ],
-  "homepage": "https://github.com/agentlint/agentlint#readme",
+  "homepage": "https://agentlint.sh",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agentlint/agentlint.git",

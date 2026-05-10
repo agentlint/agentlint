@@ -631,3 +631,65 @@ might take seconds." Logging them here so they don't get re-litigated.
     `fetchFn` that recognizes the auth/comment endpoints by URL and
     returns canned responses. The maintainer runs the real-GitHub
     smoke after merge.
+
+## ADR-0017 — Two production bugs found during slice 7 smoke test
+
+**Date:** 2026-05-10
+**Status:** accepted
+
+**Context.** Slice 7 schema applied to prod, App installed, the
+synthetic-signature webhook smoke passed (401 on bad signature,
+200 on signed `installation.created`), and the installation row
+populated correctly. The first end-to-end smoke against a real
+PR exposed two bugs the unit-test suite did not catch.
+
+**Bug 1 — fire-and-forget promise killed by Vercel runtime
+termination.** ADR-0016 #5 chose `void promise.catch(log)` for
+the PR-comment dispatch instead of pulling in
+`@vercel/functions`. On Vercel's serverless runtime the function
+context is destroyed when the response sends, so the in-flight
+promise never finished: ingest returned 201, but no GitHub
+comment ever appeared and no `pr_comment` row was inserted. Fixed
+by importing `after` from `next/server` and wrapping the
+dispatch in `after(async () => { … })`. `after` is the documented
+Next 15 escape hatch for "do work past the response on
+serverless." Commit `f2246f8 fix(api): use next/server after()
+for PR-comment dispatch`.
+
+**Bug 2 — GitHub numeric ids overflow `integer` columns.** Slice
+7's schema typed `installation.installation_id`,
+`installation.account_id`, `pr_comment.installation_id`, and
+`pr_comment.comment_id` as `integer`. PostgreSQL `integer` is
+int32 (max 2,147,483,647). Real GitHub comment ids today are
+above that ceiling — the first observed comment id during smoke
+was 4,416,205,882. The dispatch posted the comment to GitHub
+successfully, then the `pr_comment` INSERT silently failed inside
+the orchestrator's try/catch, so subsequent pushes to the same
+PR posted *new* comments instead of patching the existing one.
+Fixed by widening all four columns to `bigint` via raw
+`ALTER TABLE … SET DATA TYPE bigint` (drizzle-kit's interactive
+prompt for the same change insists on truncating, which is
+unnecessary — PostgreSQL widens int32 → int64 in place without
+data loss). The schema file uses `bigint("…", { mode: "number" })`
+so JS-side values stay as plain numbers (safe up to 2^53;
+GitHub ids are not approaching that). Commit
+`82d6489 fix(db): widen GitHub numeric ids to bigint`.
+
+**Why this matters for future slices.**
+
+1. **On Vercel, "fire-and-forget" is a lie.** Always use `after`,
+   `waitUntil`, or an explicit queue when triggering work after a
+   response. The unit tests passed because they `await`ed the
+   dispatch; production didn't.
+2. **GitHub numeric ids are bigint.** Anywhere we store GitHub
+   comment, issue, repo, user, installation, account, or
+   workflow-run ids, use `bigint`, not `integer`. Future slices
+   touching GitHub state should default to bigint.
+
+**Smoke test result after fixes.** Two `POST /api/runs` calls
+against the same PR — the first one created a comment, the
+second one PATCHed the same comment with a fresh delta row. PR #1
+ended with exactly one `agentlint-ci[bot]` comment showing
+`score: 99 / previous: 95 / Δ: +4`. Smoke artifacts cleaned up
+afterward (PR closed, branch deleted, runs + tokens + pr_comment
+rows all empty).

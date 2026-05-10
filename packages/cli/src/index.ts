@@ -14,7 +14,7 @@ import { renderTerminal } from "./report/terminal.js";
 import { allRules } from "./rules/index.js";
 import { createScanContext } from "./scan-context.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const DEFAULT_PUSH_URL = "https://agentlint.sh";
 
 async function main() {

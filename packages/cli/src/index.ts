@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { buildReport, registerRuleCategory } from "@agentlinthq/core";
 import { pushReport } from "./push/client.js";
+import { detectPrContext, type PrContext } from "./push/pr-detect.js";
 import { detectRepo } from "./push/repo-detect.js";
 import { resolveToken, tokenFilePath } from "./push/token.js";
 import { renderHtml } from "./report/html.js";
@@ -29,6 +30,7 @@ async function main() {
       "no-html": { type: "boolean" },
       push: { type: "boolean" },
       public: { type: "boolean" },
+      pr: { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -79,14 +81,21 @@ async function main() {
     results,
   });
 
+  // Resolve PR context once. The `--pr <n>` flag is a manual override that
+  // surfaces through the same detector via the AGENTLINT_PR env path.
+  const prCliOverride = parsePrFlag(values.pr);
+  const prContext = resolvePrContext(prCliOverride);
+
   if (values.json) {
     process.stdout.write(renderJson(report));
-    if (values.push) await runPush(report, values.url, root, !!values.public);
+    if (values.push)
+      await runPush(report, values.url, root, !!values.public, prContext);
     process.exit(report.score < 80 ? 1 : 0);
   }
   if (values.markdown) {
     process.stdout.write(renderMarkdown(report));
-    if (values.push) await runPush(report, values.url, root, !!values.public);
+    if (values.push)
+      await runPush(report, values.url, root, !!values.public, prContext);
     process.exit(report.score < 80 ? 1 : 0);
   }
 
@@ -100,9 +109,39 @@ async function main() {
     console.log("");
   }
 
-  if (values.push) await runPush(report, values.url, root, !!values.public);
+  if (values.push)
+    await runPush(report, values.url, root, !!values.public, prContext);
 
   process.exit(report.score < 80 ? 1 : 0);
+}
+
+/**
+ * Parse the `--pr <n>` CLI flag. Empty / non-numeric values resolve to null
+ * (we never want a typo to silently disable PR detection — the env-var path
+ * still runs when the override is null).
+ */
+function parsePrFlag(raw: string | undefined): number | null {
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  const n = Number.parseInt(raw.trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/**
+ * Resolve the PR context with optional CLI flag override. The override
+ * temporarily injects `AGENTLINT_PR` into the env so the detector's existing
+ * precedence rules apply; this keeps a single source of truth for "what
+ * counts as a PR run".
+ */
+function resolvePrContext(cliOverride: number | null): PrContext | null {
+  if (cliOverride !== null) {
+    const merged: Record<string, string | undefined> = {
+      ...process.env,
+      AGENTLINT_PR: String(cliOverride),
+    };
+    return detectPrContext((name) => merged[name]);
+  }
+  return detectPrContext();
 }
 
 /**
@@ -115,6 +154,7 @@ async function runPush(
   flagUrl: string | undefined,
   cwd: string,
   isPublic: boolean,
+  prContext: PrContext | null,
 ): Promise<void> {
   const endpoint =
     pickEndpoint(flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
@@ -140,6 +180,7 @@ async function runPush(
       ? { owner: repo.owner, name: repo.name }
       : { owner: null, name: null },
     public: isPublic,
+    pr: prContext,
     report,
   });
 
@@ -208,6 +249,11 @@ Options:
   --public                   With --push, mark the run public so the score
                              badge at /badge/<owner>/<repo>.svg renders this
                              repo's score. No effect without --push.
+  --pr <number>              With --push, override PR detection (CI usually
+                             handles this automatically via GITHUB_REF /
+                             AGENTLINT_PR). When the run is associated with
+                             a PR, the agentlint GitHub App posts (or
+                             updates) a score comment on the PR.
   --version, -v              Print version
   --help, -h                 Show this message
 

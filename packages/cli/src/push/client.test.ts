@@ -1,14 +1,91 @@
+import type { Report } from "@agentlinthq/core";
 import { describe, expect, it } from "vitest";
-import { type FetchFn, pushReport } from "./client.js";
+import {
+  buildPushBody,
+  type FetchFn,
+  type PushRunMetadata,
+  pushReport,
+} from "./client.js";
 
 const mkFetch = (impl: FetchFn): FetchFn => impl;
 
+const baseReport: Report = {
+  version: "2.0.0",
+  scannedAt: "2026-05-10T00:00:00.000Z",
+  root: "/repo",
+  results: [
+    {
+      ruleId: "r1",
+      status: "pass",
+      points: 5,
+      message: "ok",
+    },
+    {
+      ruleId: "r2",
+      status: "fail",
+      points: 0,
+      message: "missing",
+    },
+    {
+      ruleId: "r3",
+      status: "warn",
+      points: 3,
+      message: "iffy",
+    },
+    {
+      ruleId: "r4",
+      status: "skip",
+      points: null,
+      message: "n/a",
+    },
+  ],
+  byCategory: [],
+  rawScore: { earned: 8, possible: 10 },
+  score: 80,
+};
+
+const baseMetadata: PushRunMetadata = {
+  repo: { owner: "acme", name: "widgets" },
+  branch: "main",
+  commitSha: "abc123",
+  projectId: "proj_1",
+  isPublic: false,
+  prContext: null,
+};
+
 const baseArgs = {
   url: "https://agentlint.sh",
-  token: "agl_test_token",
-  body: JSON.stringify({ score: 100 }),
+  token: "agl_proj_token",
+  report: baseReport,
+  metadata: baseMetadata,
   getEnv: () => undefined,
+  oidcFetcher: async () => null,
 };
+
+describe("buildPushBody", () => {
+  it("counts results by status and includes branch + commitSha + projectId", () => {
+    const body = buildPushBody(baseReport, baseMetadata);
+    const parsed = JSON.parse(body);
+    expect(parsed.score).toBe(80);
+    expect(parsed.passes).toBe(1);
+    expect(parsed.fails).toBe(1);
+    expect(parsed.warnings).toBe(1);
+    expect(parsed.skipped).toBe(1);
+    expect(parsed.branch).toBe("main");
+    expect(parsed.commitSha).toBe("abc123");
+    expect(parsed.projectId).toBe("proj_1");
+    expect(parsed.repo).toEqual({ owner: "acme", name: "widgets" });
+    expect(parsed.public).toBe(false);
+    expect(parsed.pr).toBeNull();
+    expect(parsed.report).toBeDefined();
+  });
+
+  it("emits null repo fields when no repo is detected", () => {
+    const body = buildPushBody(baseReport, { ...baseMetadata, repo: null });
+    const parsed = JSON.parse(body);
+    expect(parsed.repo).toEqual({ owner: null, name: null });
+  });
+});
 
 describe("pushReport", () => {
   it("posts to <origin>/api/runs with bearer auth + JSON content type", async () => {
@@ -23,9 +100,7 @@ describe("pushReport", () => {
       observedMethod = init.method;
       return new Response(
         JSON.stringify({ id: "run_123", url: "/dashboard" }),
-        {
-          status: 201,
-        },
+        { status: 201 },
       );
     });
     const result = await pushReport({ ...baseArgs, fetchFn });
@@ -33,9 +108,59 @@ describe("pushReport", () => {
     if (result.ok) expect(result.runUrl).toBe("https://agentlint.sh/dashboard");
     expect(observedUrl).toBe("https://agentlint.sh/api/runs");
     expect(observedMethod).toBe("POST");
-    expect(observedHeaders.Authorization).toBe("Bearer agl_test_token");
+    expect(observedHeaders.Authorization).toBe("Bearer agl_proj_token");
     expect(observedHeaders["Content-Type"]).toBe("application/json");
-    expect(observedBody).toBe(JSON.stringify({ score: 100 }));
+    expect(observedHeaders["x-github-oidc"]).toBeUndefined();
+    expect(observedBody).toContain('"score":80');
+    expect(observedBody).toContain('"branch":"main"');
+    expect(observedBody).toContain('"commitSha":"abc123"');
+  });
+
+  it("forwards an OIDC JWT in x-github-oidc when the fetcher returns one", async () => {
+    let observedHeaders: Record<string, string> = {};
+    const fetchFn = mkFetch(async (_url, init) => {
+      observedHeaders = init.headers;
+      return new Response("", { status: 201 });
+    });
+    const result = await pushReport({
+      ...baseArgs,
+      fetchFn,
+      oidcFetcher: async () => "jwt-from-runner",
+    });
+    expect(result.ok).toBe(true);
+    expect(observedHeaders["x-github-oidc"]).toBe("jwt-from-runner");
+  });
+
+  it("does not set x-github-oidc when the fetcher returns null", async () => {
+    let observedHeaders: Record<string, string> = {};
+    const fetchFn = mkFetch(async (_url, init) => {
+      observedHeaders = init.headers;
+      return new Response("", { status: 201 });
+    });
+    const result = await pushReport({
+      ...baseArgs,
+      fetchFn,
+      oidcFetcher: async () => null,
+    });
+    expect(result.ok).toBe(true);
+    expect("x-github-oidc" in observedHeaders).toBe(false);
+  });
+
+  it("swallows OIDC fetcher errors and still pushes", async () => {
+    let observedHeaders: Record<string, string> = {};
+    const fetchFn = mkFetch(async (_url, init) => {
+      observedHeaders = init.headers;
+      return new Response("", { status: 201 });
+    });
+    const result = await pushReport({
+      ...baseArgs,
+      fetchFn,
+      oidcFetcher: async () => {
+        throw new Error("network");
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect("x-github-oidc" in observedHeaders).toBe(false);
   });
 
   it("uses absolute runUrl when server returns a full URL", async () => {

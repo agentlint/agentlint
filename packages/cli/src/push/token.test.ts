@@ -1,92 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { resolveToken, TOKEN_ENV_VAR, tokenFilePath } from "./token.js";
-
-const NOT_FOUND = (path: string) =>
-  Promise.reject(new Error(`ENOENT: ${path}`));
+import { missingTokenMessage, resolveToken, TOKEN_ENV_VAR } from "./token.js";
 
 describe("resolveToken", () => {
-  it("returns null when neither env nor file is set", async () => {
-    const token = await resolveToken({
-      getEnv: () => undefined,
-      readFileFn: NOT_FOUND,
-      homeDir: "/home/test",
-    });
+  it("returns null when AGENTLINT_TOKEN is unset", async () => {
+    const token = await resolveToken({ getEnv: () => undefined });
     expect(token).toBeNull();
   });
 
-  it("returns the env var when set, even if a token file also exists", async () => {
+  it("returns the env var value when set", async () => {
     const token = await resolveToken({
-      getEnv: (name) => (name === TOKEN_ENV_VAR ? "agl_env_token" : undefined),
-      readFileFn: async () => "agl_file_token\n",
-      homeDir: "/home/test",
+      getEnv: (name) =>
+        name === TOKEN_ENV_VAR
+          ? "agl_proj_0123456789abcdef0123456789abcdef0123456789abcdef01"
+          : undefined,
     });
-    expect(token).toBe("agl_env_token");
+    expect(token).toBe(
+      "agl_proj_0123456789abcdef0123456789abcdef0123456789abcdef01",
+    );
   });
 
   it("trims whitespace and newlines from the env value", async () => {
     const token = await resolveToken({
       getEnv: (name) =>
-        name === TOKEN_ENV_VAR ? "  agl_env_token \n" : undefined,
-      readFileFn: NOT_FOUND,
-      homeDir: "/home/test",
+        name === TOKEN_ENV_VAR ? "  agl_proj_env_token \n" : undefined,
     });
-    expect(token).toBe("agl_env_token");
+    expect(token).toBe("agl_proj_env_token");
   });
 
-  it("falls back to the token file when env is unset", async () => {
-    const token = await resolveToken({
-      getEnv: () => undefined,
-      readFileFn: async () => "agl_file_token\n",
-      homeDir: "/home/test",
-    });
-    expect(token).toBe("agl_file_token");
-  });
-
-  it("treats an empty env value as unset and reads the file", async () => {
+  it("treats whitespace-only env value as unset", async () => {
     const token = await resolveToken({
       getEnv: (name) => (name === TOKEN_ENV_VAR ? "   " : undefined),
-      readFileFn: async () => "agl_file_token",
-      homeDir: "/home/test",
-    });
-    expect(token).toBe("agl_file_token");
-  });
-
-  it("returns null when the token file is empty / whitespace", async () => {
-    const token = await resolveToken({
-      getEnv: () => undefined,
-      readFileFn: async () => "   \n",
-      homeDir: "/home/test",
     });
     expect(token).toBeNull();
   });
 
-  it("returns null when reading the token file throws", async () => {
+  it("treats empty string env value as unset", async () => {
     const token = await resolveToken({
-      getEnv: () => undefined,
-      readFileFn: NOT_FOUND,
-      homeDir: "/home/test",
+      getEnv: (name) => (name === TOKEN_ENV_VAR ? "" : undefined),
     });
     expect(token).toBeNull();
   });
 
-  it("reads the token file from ~/.config/agentlint/token", async () => {
-    let observed: string | null = null;
-    await resolveToken({
-      getEnv: () => undefined,
-      readFileFn: async (path) => {
-        observed = path;
-        return "agl_t";
-      },
-      homeDir: "/home/test",
+  it("ignores unrelated env vars", async () => {
+    const token = await resolveToken({
+      getEnv: (name) =>
+        name === "SOME_OTHER_VAR" ? "agl_proj_decoy" : undefined,
     });
-    expect(observed).toBe("/home/test/.config/agentlint/token");
+    expect(token).toBeNull();
   });
 });
 
-describe("tokenFilePath", () => {
-  it("joins home with .config/agentlint/token", () => {
-    expect(tokenFilePath("/home/alice")).toBe(
-      "/home/alice/.config/agentlint/token",
-    );
+describe("missingTokenMessage", () => {
+  it("mentions the env var and the init command", () => {
+    const msg = missingTokenMessage();
+    expect(msg).toContain(TOKEN_ENV_VAR);
+    expect(msg).toContain("agentlint init");
   });
 });

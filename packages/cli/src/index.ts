@@ -1,12 +1,16 @@
 #!/usr/bin/env node
+import { exec } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { buildReport, registerRuleCategory } from "@agentlinthq/core";
+import { runInit } from "./init/index.js";
 import { pushReport } from "./push/client.js";
+import { loadConfig } from "./push/config.js";
 import { detectPrContext, type PrContext } from "./push/pr-detect.js";
 import { detectRepo } from "./push/repo-detect.js";
-import { resolveToken, tokenFilePath } from "./push/token.js";
+import { missingTokenMessage, resolveToken } from "./push/token.js";
 import { renderHtml } from "./report/html.js";
 import { renderJson } from "./report/json.js";
 import { renderMarkdown } from "./report/markdown.js";
@@ -14,12 +18,19 @@ import { renderTerminal } from "./report/terminal.js";
 import { allRules } from "./rules/index.js";
 import { createScanContext } from "./scan-context.js";
 
-const VERSION = "1.1.0";
+const VERSION = "2.0.0";
 const DEFAULT_PUSH_URL = "https://agentlint.sh";
 
 async function main() {
+  // Handle subcommands first. The only one v2 introduces is `init`.
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "init") {
+    await runInitCommand(rawArgs.slice(1));
+    return;
+  }
+
   const { values, positionals } = parseArgs({
-    args: process.argv.slice(2),
+    args: rawArgs,
     options: {
       json: { type: "boolean" },
       markdown: { type: "boolean" },
@@ -31,6 +42,9 @@ async function main() {
       push: { type: "boolean" },
       public: { type: "boolean" },
       pr: { type: "string" },
+      project: { type: "string" },
+      branch: { type: "string" },
+      commit: { type: "string" },
     },
     allowPositionals: true,
     strict: true,
@@ -86,16 +100,24 @@ async function main() {
   const prCliOverride = parsePrFlag(values.pr);
   const prContext = resolvePrContext(prCliOverride);
 
+  const pushArgs: PushArgs = {
+    flagUrl: values.url,
+    cwd: root,
+    isPublic: !!values.public,
+    prContext,
+    projectIdFlag: values.project,
+    branchFlag: values.branch,
+    commitFlag: values.commit,
+  };
+
   if (values.json) {
     process.stdout.write(renderJson(report));
-    if (values.push)
-      await runPush(report, values.url, root, !!values.public, prContext);
+    if (values.push) await runPush(report, pushArgs);
     process.exit(report.score < 80 ? 1 : 0);
   }
   if (values.markdown) {
     process.stdout.write(renderMarkdown(report));
-    if (values.push)
-      await runPush(report, values.url, root, !!values.public, prContext);
+    if (values.push) await runPush(report, pushArgs);
     process.exit(report.score < 80 ? 1 : 0);
   }
 
@@ -109,10 +131,67 @@ async function main() {
     console.log("");
   }
 
-  if (values.push)
-    await runPush(report, values.url, root, !!values.public, prContext);
+  if (values.push) await runPush(report, pushArgs);
 
   process.exit(report.score < 80 ? 1 : 0);
+}
+
+interface InitCliFlags {
+  token?: string;
+  repo?: string;
+  endpoint?: string;
+  yes?: boolean;
+  help?: boolean;
+}
+
+/**
+ * Dispatch for `agentlint init`. Owns its own parseArgs config because the
+ * top-level command-flag schema doesn't include init-only flags.
+ */
+async function runInitCommand(initArgs: string[]): Promise<void> {
+  const parsed = parseArgs({
+    args: initArgs,
+    options: {
+      token: { type: "string" },
+      repo: { type: "string" },
+      endpoint: { type: "string" },
+      yes: { type: "boolean", short: "y" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+  });
+  const flags = parsed.values as InitCliFlags;
+
+  if (flags.help) {
+    printInitHelp();
+    return;
+  }
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const log = (line: string) => console.log(line);
+
+  const outcome = await runInit(
+    {
+      token: flags.token,
+      repo: flags.repo,
+      endpoint: flags.endpoint,
+      yes: flags.yes,
+    },
+    {
+      cwd: process.cwd(),
+      log,
+      prompt: (q) => rl.question(q),
+    },
+  );
+  rl.close();
+
+  if (outcome.kind === "wrote-config") {
+    process.exit(0);
+  }
+  process.exit(1);
 }
 
 /**
@@ -144,6 +223,67 @@ function resolvePrContext(cliOverride: number | null): PrContext | null {
   return detectPrContext();
 }
 
+interface PushArgs {
+  flagUrl: string | undefined;
+  cwd: string;
+  isPublic: boolean;
+  prContext: PrContext | null;
+  projectIdFlag: string | undefined;
+  branchFlag: string | undefined;
+  commitFlag: string | undefined;
+}
+
+/**
+ * Run a single `git <args>` command and return trimmed stdout, or null on
+ * any failure. Used to derive branch/commit when no flag or CI var is set.
+ */
+function runGit(args: string, cwd: string): Promise<string | null> {
+  return new Promise((resolveFn) => {
+    exec(
+      `git ${args}`,
+      { cwd, timeout: 2_000, windowsHide: true },
+      (err, stdout) => {
+        if (err) {
+          resolveFn(null);
+          return;
+        }
+        // Node's `exec` typings narrow stdout to `string | Buffer`, but the
+        // runtime shape is well-defined and we just want a UTF-8 string out.
+        // biome-ignore lint/suspicious/noExplicitAny: see comment above
+        const out = stdout as any;
+        const text: string =
+          typeof out === "string"
+            ? out
+            : out && typeof out.toString === "function"
+              ? String(out)
+              : "";
+        const trimmed = text.trim();
+        resolveFn(trimmed.length > 0 ? trimmed : null);
+      },
+    );
+  });
+}
+
+async function resolveBranch(
+  flag: string | undefined,
+  cwd: string,
+): Promise<string | null> {
+  if (flag && flag.length > 0) return flag;
+  const env = process.env.GITHUB_REF_NAME;
+  if (env && env.length > 0) return env;
+  return runGit("rev-parse --abbrev-ref HEAD", cwd);
+}
+
+async function resolveCommitSha(
+  flag: string | undefined,
+  cwd: string,
+): Promise<string | null> {
+  if (flag && flag.length > 0) return flag;
+  const env = process.env.GITHUB_SHA;
+  if (env && env.length > 0) return env;
+  return runGit("rev-parse HEAD", cwd);
+}
+
 /**
  * Resolve token, detect repo, POST the report. Never throws and never exits
  * non-zero — the local audit already succeeded; push is a side effect
@@ -151,40 +291,47 @@ function resolvePrContext(cliOverride: number | null): PrContext | null {
  */
 async function runPush(
   report: ReturnType<typeof buildReport>,
-  flagUrl: string | undefined,
-  cwd: string,
-  isPublic: boolean,
-  prContext: PrContext | null,
+  args: PushArgs,
 ): Promise<void> {
   const endpoint =
-    pickEndpoint(flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
+    pickEndpoint(args.flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
 
   const token = await resolveToken();
   if (!token) {
+    console.log(`Push failed: ${missingTokenMessage()}`);
+    return;
+  }
+
+  const config = await loadConfig(args.cwd);
+  const projectId =
+    args.projectIdFlag && args.projectIdFlag.length > 0
+      ? args.projectIdFlag
+      : (config?.projectId ?? null);
+  if (!projectId) {
     console.log(
-      `Push failed: no token (set AGENTLINT_TOKEN or write one to ${tokenFilePath()})`,
+      "Push failed: no projectId (run `agentlint init` or pass --project <id>).",
     );
     return;
   }
 
-  const repo = await detectRepo(cwd);
+  const repo = await detectRepo(args.cwd);
+  const branch = await resolveBranch(args.branchFlag, args.cwd);
+  const commitSha = await resolveCommitSha(args.commitFlag, args.cwd);
 
-  const counts = countByStatus(report.results);
-  const body = JSON.stringify({
-    score: report.score,
-    passes: counts.pass,
-    fails: counts.fail,
-    warnings: counts.warn,
-    skipped: counts.skip,
-    repo: repo
-      ? { owner: repo.owner, name: repo.name }
-      : { owner: null, name: null },
-    public: isPublic,
-    pr: prContext,
+  const result = await pushReport({
+    url: endpoint,
+    token,
     report,
+    metadata: {
+      repo,
+      branch,
+      commitSha,
+      projectId,
+      isPublic: args.isPublic,
+      prContext: args.prContext,
+    },
   });
 
-  const result = await pushReport({ url: endpoint, token, body });
   if (result.ok) {
     console.log(`Pushed: ${result.runUrl}`);
   } else {
@@ -210,31 +357,13 @@ function pickEndpoint(flagUrl: string | undefined): string | null {
   }
 }
 
-function countByStatus(results: ReturnType<typeof buildReport>["results"]): {
-  pass: number;
-  fail: number;
-  warn: number;
-  skip: number;
-} {
-  let pass = 0;
-  let fail = 0;
-  let warn = 0;
-  let skip = 0;
-  for (const r of results) {
-    if (r.status === "pass") pass += 1;
-    else if (r.status === "fail") fail += 1;
-    else if (r.status === "warn") warn += 1;
-    else if (r.status === "skip") skip += 1;
-  }
-  return { pass, fail, warn, skip };
-}
-
 function printHelp() {
   console.log(`
 agentlint v${VERSION}  —  Lighthouse for AI coding agents
 
 Usage:
   agentlint [path]           Scan the given path (default: cwd)
+  agentlint init             Set up .agentlint.json for --push
 
 Options:
   --json                     Machine-readable JSON to stdout
@@ -242,10 +371,17 @@ Options:
   --url <docs-url>           Also audit the docs site at this URL
   --output, -o <path>        Where to write the HTML report
   --no-html                  Don't write an HTML report
-  --push                     Upload the report to your agentlint.sh dashboard
-                             (requires AGENTLINT_TOKEN env or
-                             ~/.config/agentlint/token; opt-in, never on by
-                             default)
+  --push                     Upload the report to your agentlint.sh dashboard.
+                             Requires AGENTLINT_TOKEN env (a project token)
+                             and either a .agentlint.json config file at the
+                             repo root or --project <id>.
+  --project <id>             With --push, override the projectId from
+                             .agentlint.json.
+  --branch <name>            With --push, override the branch name. Defaults
+                             to GITHUB_REF_NAME, then \`git rev-parse
+                             --abbrev-ref HEAD\`.
+  --commit <sha>             With --push, override the commit SHA. Defaults
+                             to GITHUB_SHA, then \`git rev-parse HEAD\`.
   --public                   With --push, mark the run public so the score
                              badge at /badge/<owner>/<repo>.svg renders this
                              repo's score. No effect without --push.
@@ -259,7 +395,24 @@ Options:
 
 Exit code: 0 if score >= 80, 1 otherwise. Use this to gate CI.
 
-Docs: https://agentlint.dev
+Docs: https://agentlint.sh
+`);
+}
+
+function printInitHelp() {
+  console.log(`
+agentlint init  —  set up .agentlint.json for --push
+
+Usage:
+  agentlint init [options]
+
+Options:
+  --token <value>            Project token (overrides AGENTLINT_TOKEN env).
+                             Generate one at https://agentlint.sh/cli/auth.
+  --repo <owner/name>        Override the git remote-derived repo name.
+  --endpoint <url>           API base URL (default: https://agentlint.sh).
+  --yes, -y                  Non-interactive: fail rather than prompting.
+  --help, -h                 Show this message
 `);
 }
 

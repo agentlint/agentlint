@@ -7,33 +7,89 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (slice 7 shipped to `main` on both repos: GitHub App webhook, PR-comment posting on ingest, CLI PR detection. Schema applied to Neon dev branch; prod migration deferred to maintainer smoke test.)
+**Last updated:** 2026-05-10 by Claude Code — **v2 architecture rewrite** on `feat/v2-org-model` branches in both repos. Better-Auth organization plugin; org→project→run hierarchy; project-scoped tokens (`agl_proj_…`); CLI v2.0.0 with `init` command and GitHub Actions OIDC provenance; server-side scans removed (ADR-0019); branch protection enforced (ADR-0021). DB reset on both Neon branches and migrated fresh.
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
-| Branch | `main` |
-| Latest commit | `cc0c40a` — `feat(cli): add --public flag to mark pushed runs as publicly visible` (CLI repo); `8923eef` — `docs(readme): document the score badge` (agentlint.sh repo) |
-| Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | CLI repo: 65 passing (52 + 13 pr-detect). Web repo: 122 passing (84 from slices 4–6 + 5 app-jwt + 9 webhook-signature + 8 comment-template + 7 webhook-installation + 9 runs-pr-comment). |
+| Branch | `feat/v2-org-model` on both repos (target: `dev` → `main` via PR per ADR-0021) |
+| Latest commit | uncommitted — v2 rewrite in working tree on both repos |
+| Self-audit | CLI repo: 100/100. Web repo: typecheck clean, tests passing, Next build green. |
+| Tests | CLI repo: **123 passing** across 9 files (init + config + oidc + project-lookup + push.client + token + repo-detect + pr-detect + rules). Web repo: **50 passing** across 7 files (tokens, comment-template, ids, rate-limit, app-jwt, webhook-installation, webhook-signature). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` |
 | CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Website field: `https://agentlint.sh` |
 | Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private** as of 2026-05-10 — see ADR-0013). 4 dependabot alerts open (2 high, 2 moderate); triage pending. |
-| npm package | ✅ [`@agentlinthq/cli@1.1.0`](https://www.npmjs.com/package/@agentlinthq/cli) (2026-05-10 — `--push`, `--public`, `--pr` flags), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
+| npm package | ✅ [`@agentlinthq/cli@1.1.0`](https://www.npmjs.com/package/@agentlinthq/cli) (latest published). **v2.0.0 prepared locally** (`packages/cli/package.json`) — not yet published; publish after the v2 web API ships. [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) unchanged. |
 | GitHub Release | ✅ [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
 | Domain | ✅ `agentlint.sh` live in production via Cloudflare DNS (apex + www). Preview deployments at `previo.agentlint.sh`. |
 | Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Auto-deploy via `.github/workflows/deploy.yml` (push to main → prod, PR → preview). Vercel built-in git integration is **disconnected** because Hobby doesn't allow deploying private org repos — see ADR-0014. |
 | Auth | ✅ better-auth + GitHub OAuth + Drizzle adapter; sessions persisted in Neon Postgres |
 | Database | ✅ Neon Postgres — separate prod and dev branches; schema migrated to both via `drizzle-kit push` |
-| Billing | ⚠️ **Paid tiers pulled from UI on 2026-05-10** (see ADR-0012). Stripe routes (`/api/stripe/checkout`, `/portal`, `/webhook`) remain deployed; products + recurring prices + webhook secret remain provisioned. `/pricing` shows Pro/Team as `Coming soon` with `Notify me at launch` mailto CTAs. Smoke-tested end-to-end before pulling — checkout, webhook, dashboard sub display, customer portal all verified. Re-enabling = revert `app/pricing/page.tsx`. |
+| Billing | ⚠️ **Paid tiers pulled from UI on 2026-05-10** (ADR-0012). Stripe routes now org-scoped (ADR-0018) — `customer.id` lives on `organization.stripeCustomerId`, all three routes accept `{orgSlug}` and gate on org admin role. Re-enabling = revert `app/pricing/page.tsx` AND wire an org picker. |
 | Leaderboard tool | ✅ pipeline functions complete (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`). Bin entrypoint and first run still pending. |
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### v2 architecture session (2026-05-10, org-centric multi-tenant rewrite)
+
+- **Better-Auth organization plugin** wired into `lib/auth.ts` with
+  `databaseHooks.user.create.after` callback that mints a default
+  "Personal" org on every new sign-up (ADR-0018). Client gets
+  `organizationClient` plugin in `lib/auth-client.ts`.
+- **Schema reset.** Single user + empty subscription/install rows
+  dropped on both Neon branches (production + dev). Fresh
+  `db/migrations/0000_init_v2.sql` introduces `organization`,
+  `member`, `invitation`, `project`, `project_token`, plus widened
+  `run` (org_id, project_id, branch, commit_sha, source,
+  provenance) and org-scoped `subscription`.
+- **Project model.** New `project` table binds (org → repo) with
+  `prodBranch`, `installationId`, `githubRepoId`. Unique constraint
+  on `(orgId, repoOwner, repoName)`.
+- **Project tokens.** `apiToken` (user-scoped, `agl_…`) dropped.
+  New `project_token` with prefix `agl_proj_…` (61 chars total).
+  `lib/tokens.ts` + tests updated.
+- **API surface rewritten** under org auth:
+  - `POST /api/projects` create, `GET /api/projects?orgSlug=…`
+  - `GET|PATCH|DELETE /api/projects/:id` (admin-gated for write)
+  - `POST|GET /api/projects/:id/tokens`, `DELETE /api/projects/:id/tokens/:tokenId`
+  - `POST /api/runs` now verifies project token, optional GitHub
+    Actions OIDC JWT for provenance (ADR-0019).
+  - `GET /api/cli/projects` — CLI-facing lookup used by `agentlint init`
+  - `/api/stripe/{checkout,portal,webhook}` org-scoped; `customer.id`
+    on `organization.stripeCustomerId`
+- **Server-side scans removed.** `lib/scan/run-scan.ts` and the
+  `handlePushEvent` webhook handler deleted. The `installation`
+  table and PR-comment write-path stay so the App still posts diffs
+  on PRs whose runs come from the CLI (ADR-0019).
+- **CLI v2.0.0** prepared in `packages/cli`:
+  - `agentlint init` subcommand: prompts/accepts token, detects
+    repo, calls `/api/cli/projects` to confirm linkage, writes
+    `.agentlint.json` (ADR-0020), emits CI snippet
+  - `--push` reads `.agentlint.json` + `AGENTLINT_TOKEN` env (no
+    more `~/.config/agentlint/token`)
+  - GitHub Actions OIDC: fetches `audience=agentlint` JWT and
+    sends as `x-github-oidc` header. Server verifies → tags
+    `source=ci, provenance=oidc-verified`
+  - New flags: `--project`, `--branch`, `--commit`
+  - 123 tests passing (up from 65)
+- **Dashboard rewrite** (web app):
+  - `/dashboard` lists user's orgs (multi-org aware)
+  - `/dashboard/orgs/:slug` org overview (projects + recent runs +
+    subscription)
+  - `/dashboard/orgs/:slug/projects/new` linked-repo form
+  - `/dashboard/orgs/:slug/projects/:projectId` per-project view
+    with mint/revoke token UI and per-branch run table
+- **Branch protection** (ADR-0021):
+  - CLI repo (public): GitHub branch protection on `main`
+    requiring PR + `ci` status check (configured via REST API)
+  - Web repo (private): GitHub Free can't protect — fallback is
+    local `.githooks/pre-push` (blocks direct push to main)
+    + `.github/workflows/branch-policy.yml` CI flag
 
 ### Slice 7 ship session (2026-05-10, GitHub App PR comments)
 

@@ -30,13 +30,26 @@ packages/
     src/types.ts        Result, Rule, Report, ScanContext
     src/score.ts        buildReport, registerRuleCategory
   cli/                  CLI entrypoint, FS walker, reporters
-    src/index.ts        bin entry
+    src/index.ts        bin entry — argv parsing + subcommand dispatch
+    src/init/index.ts   `agentlint init` subcommand (v2)
     src/scan-context.ts cached FS reads + project meta detection
+    src/push/           push pipeline
+      client.ts         POST /api/runs with project token
+      config.ts         .agentlint.json loader (ADR-0020)
+      oidc.ts           GitHub Actions OIDC token fetcher (ADR-0019)
+      project-lookup.ts GET /api/cli/projects (used by init)
+      token.ts          AGENTLINT_TOKEN env resolution
+      pr-detect.ts      PR context detection from CI env
+      repo-detect.ts    git remote → owner/name
     src/rules/          one file per category, six rules each
     src/report/         terminal, html, json, markdown reporters
 ```
 
 `core` is depended on by `cli` via `workspace:*` protocol. Never make `core` depend on anything in `cli` — it must stay IO-free for testing.
+
+The web app is in a separate repo at `agentlint/agentlint.sh`. Its v2
+schema FKs every business table to `organization.id` (ADR-0018). The CLI
+authenticates with a **project token** (`agl_proj_…`), not a user token.
 
 ## Conventions
 
@@ -64,7 +77,17 @@ Do not modify these without explicit instruction:
 
 ## Secrets
 
-Never commit `.env*` files. The CLI is local-first; nothing requires secrets at runtime.
+Never commit `.env*` files. The CLI is local-first; nothing requires secrets
+at runtime. The only secret the CLI consumes is `AGENTLINT_TOKEN` (a project
+token, prefix `agl_proj_`), and it is read from the environment — never
+from the checked-in `.agentlint.json` (ADR-0020).
+
+## Branch policy
+
+`main` is PR-gated (ADR-0021). The CLI repo (public) is enforced via GitHub
+branch protection; the web app repo (private) is enforced via local
+`.githooks/pre-push` + the `branch-policy.yml` CI workflow. New work goes
+on `feat/<slug>` → PR into `dev` → PR into `main`.
 
 ## Gotchas
 

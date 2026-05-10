@@ -26,7 +26,7 @@
 | GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
 | Domain | ✅ `agentlint.sh` live in production via Cloudflare DNS (apex + www). Preview deployments at `previo.agentlint.sh`. |
-| Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Vercel + GitHub auto-deploy on every push. |
+| Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Auto-deploy via `.github/workflows/deploy.yml` (push to main → prod, PR → preview). Vercel built-in git integration is **disconnected** because Hobby doesn't allow deploying private org repos — see ADR-0014. |
 | Auth | ✅ better-auth + GitHub OAuth + Drizzle adapter; sessions persisted in Neon Postgres |
 | Database | ✅ Neon Postgres — separate prod and dev branches; schema migrated to both via `drizzle-kit push` |
 | Billing | ⚠️ **Paid tiers pulled from UI on 2026-05-10** (see ADR-0012). Stripe routes (`/api/stripe/checkout`, `/portal`, `/webhook`) remain deployed; products + recurring prices + webhook secret remain provisioned. `/pricing` shows Pro/Team as `Coming soon` with `Notify me at launch` mailto CTAs. Smoke-tested end-to-end before pulling — checkout, webhook, dashboard sub display, customer portal all verified. Re-enabling = revert `app/pricing/page.tsx`. |
@@ -38,8 +38,7 @@
 ### Post-launch hardening session (2026-05-10, afternoon)
 
 - **Cloudflare DNS applied — site live at `agentlint.sh` and
-  `previo.agentlint.sh`** (preview deployments). Vercel GitHub App
-  installed on the org; pushes to `agentlint/agentlint.sh` auto-deploy.
+  `previo.agentlint.sh`** (preview deployments).
 - **Stripe purchase flow smoke-tested end-to-end** with test card
   `4242 4242 4242 4242`. Checkout → webhook → subscription row in
   Neon prod → dashboard display → customer portal — all verified.
@@ -51,8 +50,24 @@
 - **`agentlint/agentlint.sh` repo flipped to private** (see
   ADR-0013). CLI repo stays public/MIT. Hosted-layer schema, Stripe
   wiring, dashboard implementation no longer publicly readable.
-- **DECISIONS log updated** — ADR-0012 (pull paid tiers) and
-  ADR-0013 (web repo private).
+- **Deploy moved to GitHub Actions + Vercel CLI** (see ADR-0014).
+  Vercel Hobby refuses to deploy from private org repos via git
+  integration; built `.github/workflows/deploy.yml` that calls
+  `vercel deploy` from CI with a project-scoped token. Manual
+  prod deploy executed during the cutover so the pricing pull
+  finally landed in production (was sitting on a stale build for
+  ~30 min after the repo went private). Vercel git integration
+  disconnected; three secrets seeded (`VERCEL_TOKEN`,
+  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`).
+- **DECISIONS log updated** — ADR-0012 (pull paid tiers),
+  ADR-0013 (web repo private), ADR-0014 (GitHub Actions deploy).
+- **New project skill `agentlint-feature-pipeline`** at
+  `.claude/skills/agentlint-feature-pipeline/SKILL.md` — drives the
+  hosted-dashboard build forward autonomously: pick the next P1
+  vertical slice from PROJECT_STATE, run grill-me → to-prd →
+  to-issues → tdd, close out, push. Travels with the repo so any
+  agent picking up the codebase can run it via
+  `/agentlint-feature-pipeline`.
 
 ### Overnight MVP session (2026-05-10)
 

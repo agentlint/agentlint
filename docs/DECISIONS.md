@@ -372,3 +372,58 @@ benefit to making it readable and there's a real competitive cost.
 Reversible at any time via `gh repo edit --visibility public`. (c)
 is fine but not now — the code isn't stable enough to be a useful
 template, and template-extraction is a one-day chore once it is.
+
+## ADR-0014 — Deploy `agentlint.sh` via GitHub Actions + Vercel CLI (not the built-in git integration)
+
+**Date:** 2026-05-10
+**Status:** accepted
+
+**Context.** Vercel's Hobby (free) plan does not allow deploying
+private GitHub *organization* repos through the built-in git
+integration; only personal-account private repos work. Once
+ADR-0013 flipped `agentlint/agentlint.sh` private, every push
+silently stopped deploying — the production site sat on a stale
+build that still showed live `Subscribe` CTAs even though the
+ADR-0012 pricing pull had already been pushed and reviewed. The
+Hobby restriction blocks the obvious "just connect git" path.
+
+**Options.**
+- (a) Transfer the repo from `agentlint` org to the maintainer's
+  personal account. Hobby works, repo stays private, branding
+  shifts off the org.
+- (b) Keep the repo in the `agentlint` org, do deploys from a
+  GitHub Action that calls `vercel deploy` with a project-scoped
+  token. Disconnect Vercel's git integration to avoid duplicate
+  deploys.
+- (c) Upgrade to Vercel Pro. Costs $20/month/seat; not justified at
+  pre-revenue stage.
+- (d) Migrate hosting to Cloudflare Pages or Netlify, both of which
+  allow private org repos on free tiers. Largest lift; throws away
+  Vercel-specific features.
+
+**Choice.** (b). Wrote `.github/workflows/deploy.yml` in the
+`agentlint.sh` repo. Push to `main` runs a production deploy;
+pull requests run preview deploys and the workflow upserts a
+single PR comment with the preview URL (concurrency group cancels
+in-flight deploys when newer commits arrive on the same ref). The
+job uses the Vercel CLI server-side build, not `--prebuilt`,
+because pnpm 11's strict ignored-builds gate (esbuild, sharp)
+fails the local install path in CI containers. Three GitHub repo
+secrets: `VERCEL_TOKEN` (project-scoped, no expiry, rotatable),
+`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`. The Vercel project's git
+integration was disconnected by the human in the Vercel UI.
+
+**Why.** (a) drops the org branding from the only URL where
+contributors look first — the GitHub repo — and complicates future
+hand-off if a teammate ever helps maintain. (c) burns money for a
+problem that is solved by 80 lines of YAML. (d) is a re-platforming
+project that has no business being on the critical path during
+launch week. (b) keeps the org structure, the existing Vercel
+project, the existing domain configuration, and only adds a
+workflow file. The trade-offs are real but acceptable: PR previews
+no longer show up as inline checks from Vercel's GitHub App (the
+workflow comments the URL instead), and deploys take ~60–90s
+longer than the integrated path because we re-fetch project
+settings on every run. Reversibility is full: re-connect git
+integration in Vercel UI and delete the workflow file the day we
+upgrade or move off Hobby.

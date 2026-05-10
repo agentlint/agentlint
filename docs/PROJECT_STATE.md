@@ -14,7 +14,7 @@
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `2b01d1e` — `docs: add CHARTER establishing autonomy boundaries and operating model` |
+| Latest commit | `48fdd61` — `chore: add prepare-commit-msg hook for agent co-authorship` |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
 | Tests | 17 passing (3 core + 14 CLI) |
 | Lint | clean (Biome) |

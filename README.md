@@ -74,6 +74,16 @@ agentlint --push
 
 The token is read from `AGENTLINT_TOKEN` first, then from `~/.config/agentlint/token` (one line, `chmod 600` recommended). The token is never read from `argv`. Push failures (auth, rate limit, network) print one line and exit 0 — the local audit still succeeds. The CLI refuses to send to non-HTTPS URLs (except `localhost` / `127.0.0.1`).
 
+### PR comments via the agentlint GitHub App
+
+When a `--push` run is associated with a pull request and the
+[agentlint GitHub App](https://github.com/apps/agentlint-ci) is installed on
+the repo, the App posts a single comment on the PR with the score, a diff
+versus the previous run, and links to the dashboard and badge. Subsequent
+pushes update the same comment instead of stacking new ones. PR detection
+works automatically on GitHub Actions `pull_request` events; for other CI
+vendors set `AGENTLINT_PR=<n>` or pass `--pr <n>`.
+
 See [`packages/cli/README.md`](./packages/cli/README.md) for the full security model.
 
 ## How this project is built

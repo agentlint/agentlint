@@ -73,6 +73,42 @@ The `--url` flag is also used for the documentation rules' docs-site audit, so i
 
 Store the token as a secret. Never echo it, never commit it.
 
+## PR comments via the agentlint GitHub App
+
+When a `--push` run is associated with a pull request, the agentlint GitHub
+App will post (or update) a single comment on the PR showing the score, a diff
+versus the previous run on the same repo, and links to the dashboard and
+badge. Subsequent pushes update the same comment instead of stacking new ones.
+
+To enable:
+
+1. Install the [agentlint GitHub App](https://github.com/apps/agentlint-ci)
+   on the repository (or on the org). Permissions requested are pull-request
+   read/write and metadata read — nothing else.
+2. Push from CI as usual. PR detection works automatically on GitHub Actions
+   `pull_request` and `pull_request_target` events; `GITHUB_REF`,
+   `GITHUB_SHA`, and `GITHUB_BASE_REF` are read directly.
+3. For other CI vendors (or to test locally), set `AGENTLINT_PR=<n>` or pass
+   `--pr <n>` so the CLI attaches PR metadata to the upload.
+
+```yaml
+# Example: GitHub Actions on a PR — comment appears automatically.
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  agentlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx @agentlinthq/cli --push
+        env:
+          AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}
+```
+
+If the App is not installed on the repo, the score still uploads but no
+comment is posted.
+
 ## What it checks
 
 Five categories, ~30 checks, 0–100 score. See the project's [`AGENTS.md`](https://github.com/agentlint/agentlint/blob/main/AGENTS.md) for the full conventions and rule list.

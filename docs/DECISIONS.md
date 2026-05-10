@@ -532,3 +532,102 @@ contract.
     history shows what happened. **Lesson for future agents:**
     after `pnpm add`, always re-run install and commit the
     lockfile in the same PR.
+
+## ADR-0016 — Slice 7 (GitHub App PR comments) — implementation choices
+
+**Date:** 2026-05-10
+**Status:** accepted
+**Supersedes:** none. Implements slice 7 of the hosted-dashboard build.
+
+**Context.** Slice 7 wires up the agentlint GitHub App: the CLI detects a
+PR context from CI env, the web ingest accepts a `pr` field, and the App
+posts (or updates) a single comment per PR with the score + diff vs. the
+previous run. The App is registered (App ID 3668343, slug
+`agentlint-ci`) with prod env vars already set on Vercel. Several
+implementation choices were forced by the constraints "no new runtime
+deps" and "the webhook must respond in <1s while the comment posting
+might take seconds." Logging them here so they don't get re-litigated.
+
+**Decisions and why.**
+
+1. **Hand-rolled JWT signing on `node:crypto`.** No `jsonwebtoken` /
+   `jose` dep. The signing routine is ~30 LOC: base64url-encode the
+   header + payload, RS256-sign the joined string with `createSign`,
+   base64url the signature. Verifiable via `createVerify` against the
+   matching public key — covered by a real round-trip test using a
+   freshly-generated RSA key pair. Same rationale as the slice 4
+   hand-rolled token primitives: keep the security-critical surface dep-flat.
+
+2. **Installation token cache is in-memory, keyed by installationId,
+   refreshed 5 minutes early.** GitHub-issued installation tokens last
+   one hour. We refresh 5 minutes ahead of `expires_at` so a slow
+   request started just before expiry can't land with a stale token.
+   The cache lives only in process memory; cold starts mint a new
+   token. No Redis, no shared cache — single Vercel function instance
+   is the deployment shape.
+
+3. **Webhook returns 200 even on unrecognized events.** GitHub retries
+   on non-2xx, and we'd rather no-op than create a thundering herd if
+   we add a new subscription before its handler. We also 200 on
+   malformed payloads (no `action` field) for the same reason.
+   Signature-verification failures are the only path that 401s — those
+   are real and should be visible in the App's delivery dashboard.
+
+4. **Webhook never posts comments.** The webhook is the install/repo
+   bookkeeping path. PR comments are triggered by the `/api/runs`
+   ingest path because (a) the webhook has a strict ~10s budget, (b)
+   we already have all the info we need at ingest time, and (c)
+   keeping the webhook fast means we can subscribe to more events
+   later without revisiting timeouts.
+
+5. **PR-comment work is fire-and-forget on the ingest path.** The
+   `/api/runs` POST returns 201 immediately and `void`s the
+   `postOrUpdatePrComment` promise (with a `.catch(log)` for defense
+   in depth). Charter §3 requires the local audit to never be blocked
+   by a side effect; comment-posting failures must never turn the
+   ingest into a 5xx. We did not pull in `@vercel/functions` for
+   `waitUntil` — the dependency adds weight and the promise-leak
+   pattern is well-understood.
+
+6. **Comment marker `<!-- agentlint-comment:do-not-edit -->` is the
+   recovery mechanism.** Primary path: the `pr_comment` table records
+   the GitHub comment id, and we PATCH it on subsequent runs. Recovery
+   path (deferred to a future slice if it actually matters): if the
+   row is missing, list the PR's comments, find the one authored by
+   `agentlint-ci[bot]` containing the marker, and adopt it. Marker
+   present in every comment from day one.
+
+7. **`installation` and `pr_comment` are not foreign-keyed to each
+   other.** An installation can be uninstalled and reinstalled with a
+   new numeric `installationId`; we don't want to drop comment history
+   on re-install. `pr_comment.installationId` is recorded at
+   write-time so we know which token scope to mint, but it's a plain
+   integer column.
+
+8. **Schema applied to Neon dev branch only.** Same posture as slice 4:
+   `drizzle-kit push` ran against the dev branch, the prod migration
+   waits for the maintainer's smoke test. Migration SQL committed at
+   `db/migrations/0003_harsh_meteorite.sql`.
+
+9. **PR detection lives in the CLI, not the server.** The CLI is the
+   thing with access to CI env vars. Server only sees the `pr` field
+   on the body; missing-or-null `pr` means "not a PR run, skip the
+   comment path." Manual override via `AGENTLINT_PR` env or `--pr <n>`
+   flag — both flow through the same detector.
+
+10. **`pull_request_target` accepted as a PR variant.** Some workflows
+    use `pull_request_target` for fork PRs. Treating it the same as
+    `pull_request` keeps the comment behavior consistent regardless
+    of which trigger the user picked.
+
+11. **Webhook responses do not include any payload echo.** Even on
+    400 (`Invalid JSON`, `Missing X-GitHub-Event`) the response body
+    is a fixed envelope. Body content is never echoed because GitHub
+    delivery payloads can include sensitive metadata that we should
+    not be reflecting back to a potentially-spoofed sender.
+
+12. **Mocked GitHub API in tests; never hits real GitHub.** The
+    `postOrUpdatePrComment` integration tests use an injected
+    `fetchFn` that recognizes the auth/comment endpoints by URL and
+    returns canned responses. The maintainer runs the real-GitHub
+    smoke after merge.

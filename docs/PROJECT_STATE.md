@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (slices 4–6 live in prod: `--push` ingest, dashboard sparkline + delta chips, public score badge endpoint, CLI `--public` flag)
+**Last updated:** 2026-05-10 by Claude Code (slice 7 shipped to `main` on both repos: GitHub App webhook, PR-comment posting on ingest, CLI PR detection. Schema applied to Neon dev branch; prod migration deferred to maintainer smoke test.)
 
 ## Snapshot
 
@@ -16,7 +16,7 @@
 | Branch | `main` |
 | Latest commit | `cc0c40a` — `feat(cli): add --public flag to mark pushed runs as publicly visible` (CLI repo); `8923eef` — `docs(readme): document the score badge` (agentlint.sh repo) |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | CLI repo: 52 passing. Web repo: 84 passing (16 token unit + 3 ulid + 3 rate-limit + 7 ingest integration + 19 sparkline/delta/chip + 36 badge color/width/render/route). |
+| Tests | CLI repo: 65 passing (52 + 13 pr-detect). Web repo: 122 passing (84 from slices 4–6 + 5 app-jwt + 9 webhook-signature + 8 comment-template + 7 webhook-installation + 9 runs-pr-comment). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` |
@@ -34,6 +34,56 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Slice 7 ship session (2026-05-10, GitHub App PR comments)
+
+- **Web repo:** new `installation` and `pr_comment` tables with the
+  indexes called out in the slice 7 brief. Migration generated as
+  `db/migrations/0003_harsh_meteorite.sql` and applied to Neon **dev**
+  via `drizzle-kit push`. Prod migration deferred to maintainer smoke
+  test (same posture as slice 4).
+- **GitHub App auth helpers** (`lib/github-app/auth.ts`): hand-rolled
+  RS256 JWT signing on `node:crypto`, installation-token mint with
+  in-memory cache (5-min early refresh), constant-time webhook signature
+  verification. No JWT library pulled in — see ADR-0016 #1.
+- **Webhook handler** (`app/api/github/webhook/route.ts`): POST-only,
+  verifies `X-Hub-Signature-256` against `GITHUB_APP_WEBHOOK_SECRET`,
+  dispatches `installation.created/deleted/suspend/unsuspend` and
+  `installation_repositories.added/removed`. Returns 200 on
+  unrecognized events to avoid GitHub retry storms; 401 only on
+  signature failure. Body content never echoed in error responses.
+- **Comment template** (`lib/github-app/comment.ts`): markdown table
+  with score/passes/fails diff vs. previous run, em-dashes on
+  first-run, `<!-- agentlint-comment:do-not-edit -->` magic marker
+  for recovery. Em-dash + `+`/`-` sign formatting covered by 8 tests.
+- **PR-comment orchestrator** (`lib/github-app/post-comment.ts`):
+  fire-and-forget from the ingest path. Looks up installation,
+  computes diff against previous run, mints token, PATCHes existing
+  comment or POSTs a new one. All errors caught + logged; never
+  bubbles a 5xx to the ingest response.
+- **Ingest extension** (`app/api/runs/route.ts`): `pr` field added to
+  the zod schema (optional + nullable). When present + repo
+  metadata + matching installation, dispatches the comment work via
+  `void` promise.
+- **CLI repo:** `pr-detect.ts` parses GitHub Actions `pull_request` /
+  `pull_request_target` events from `GITHUB_REF` + `GITHUB_SHA` +
+  `GITHUB_BASE_REF`, with `AGENTLINT_PR` and `--pr <n>` overrides.
+  PR context attached to every push body.
+- **Tests.** Web 84 → 122 (+38). CLI 52 → 65 (+13). Web includes 5
+  JWT-shape + signature-verify round-trip tests (real RSA key
+  generated per test), 9 webhook-signature tests, 8
+  comment-template tests, 7 webhook-installation DB-integration
+  tests (inserts/deletes against the dev branch), 9 runs-pr-comment
+  tests (zod acceptance + four `postOrUpdatePrComment` paths with
+  mocked fetch).
+- **Self-audit holds at 100/100** on the CLI repo. Web build
+  succeeds; new route shows up at `/api/github/webhook`.
+- **ADR-0016** logs the twelve non-PRD calls slice 7 made
+  (hand-rolled JWT, in-memory token cache, webhook 200-on-unknown,
+  webhook never posts comments, fire-and-forget on ingest, comment
+  marker as recovery, no FK between installation and pr_comment, dev
+  push only, CLI-side PR detection, `pull_request_target` accepted,
+  no payload echo in webhook errors, mocked GitHub in tests).
 
 ### Slices 5 + 6 ship + cutover (2026-05-10, late evening)
 
@@ -340,9 +390,16 @@ horizontally scaffold the whole schema first.
    Outstanding: dashboard UI to flip individual runs public/private
    after the fact (deferred to a thin follow-up slice — currently
    the only way to mark a run public is `agentlint --push --public`).
-7. **GitHub App for PR comments** — App posts a comment with score
-   diff on every PR push. Vertical slice: GitHub App registration,
-   webhook handler, install flow on `/dashboard`, comment template.
+7. ~~**GitHub App for PR comments**~~ ✅ Shipped 2026-05-10. See
+   "Slice 7 ship session" entry under "Done — recent" and ADR-0016.
+   Schema applied to Neon **dev**; production migration deferred to
+   maintainer smoke test (same posture as slice 4). Outstanding for
+   the maintainer: (a) push schema to prod, (b) smoke-test against
+   the real GitHub App by installing on a test repo and pushing from
+   CI, (c) the `/dashboard` UI for the install flow is still not
+   implemented — the App is installed via
+   `https://github.com/apps/agentlint-ci` directly. A dashboard
+   install card is a thin follow-up if user research demands it.
 8. **Org-level dashboard (Team)** — list of repos in an org with
    their latest scores. Vertical slice: `org` membership table, query,
    UI tab, gating by Team subscription.

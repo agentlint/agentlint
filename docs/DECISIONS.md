@@ -427,3 +427,108 @@ longer than the integrated path because we re-fetch project
 settings on every run. Reversibility is full: re-connect git
 integration in Vercel UI and delete the workflow file the day we
 upgrade or move off Hobby.
+
+## ADR-0015 — Slice 4 (`agentlint --push` ingest) — implementation choices
+
+**Date:** 2026-05-10
+**Status:** accepted
+**Supersedes:** none. Implements PRD `docs/prds/agentlint-push-ingest.md`.
+
+**Context.** Slice 4 of the hosted dashboard build (`agentlint --push`
++ report ingest) was implemented end-to-end by two parallel
+subagents: one in the CLI repo (`packages/cli/src/push/*`) and one in
+the web repo (`db/schema.ts`, `app/api/tokens/*`, `app/api/runs/*`,
+`app/dashboard/tokens/`, dashboard runs list). Several call sites
+forced choices the PRD did not pin down. Logging them here so a
+future contributor doesn't assume they were all in the original
+contract.
+
+**Decisions and why.**
+
+1. **Hand-rolled base32 + Crockford ULID.** The PRD allowed either
+   a library or a hand-roll for token encoding. The web subagent
+   chose hand-roll (~30 LOC each) over pulling `@scure/base` and
+   the `ulid` package, with RFC 4648 test vectors covering
+   correctness. Rationale: keep the dependency surface flat in a
+   security-critical module (token generation), and avoid
+   transitive supply-chain weight for two trivial primitives.
+   Reversible if we ever need decoding for another purpose — swap
+   in `@scure/base` then.
+
+2. **Insert-then-update on `/api/runs`, no transaction.** Drizzle's
+   `neon-http` driver does not expose interactive transactions. The
+   ingest path inserts the `run` row first, then bumps
+   `apiToken.lastUsedAt`. If the second write fails, the run row
+   is still durable (rather than getting a phantom run with no
+   audit trail). The two writes are independent — the run row
+   already references an existing token id — so split is safe.
+
+3. **`looksLikeToken` shape pre-check before DB lookup.** PRD only
+   required `crypto.timingSafeEqual` for hash comparison. The web
+   subagent added a constant-time-on-length shape check (length +
+   prefix + alphabet) so obviously bogus bearers don't hammer the
+   DB. The check is deterministic on length, so it doesn't widen
+   the timing oracle compared to the bare hash compare.
+
+4. **`api_token_token_hash_idx` index added.** The PRD listed two
+   indexes (`(userId, revokedAt)` on `apiToken`,
+   `(userId, createdAt desc)` on `run`) but did not call out the
+   bearer-lookup index. Without it, every `/api/runs` POST would
+   full-scan the token table. Treated as required for the ingest
+   path to be acceptable, not as a contract change.
+
+5. **`--url` flag in the CLI is overloaded by URL pathname.**
+   `--url <X>` already meant "audit this docs site" pre-slice-4. The
+   PRD spec'd `agentlint --push --url https://agentlint.sh` for the
+   push endpoint. The CLI subagent disambiguated by pathname: a bare
+   origin (`/` or empty path) is treated as the push endpoint;
+   anything else is the docs target. Falls back to `AGENTLINT_URL`
+   env or the default `https://agentlint.sh`. Keeps both use cases
+   working without adding a second flag.
+
+6. **`AGENTLINT_INSECURE=1` is env-only, not a `--insecure` flag.**
+   The PRD mentioned an `--insecure` flag in §Security as a
+   local-testing escape hatch. Implemented as an env-only switch
+   instead. Rationale: less discoverable means less likely to be
+   copy-pasted into production scripts, and you can't accidentally
+   tab-complete it. Trivial to add a flag later if a real use case
+   shows up.
+
+7. **`--push` exits 0 even when no token is configured.** PRD says
+   push failures (4xx/5xx, network) exit 0 so the local audit
+   isn't blocked. Extended to "no token resolved" too, on the
+   principle that `--push` is a side effect that must never break
+   CI. The CLI prints the resolution path in the error message so
+   the user can fix it.
+
+8. **Push line lands at the bottom of stdout.** The push happens
+   after the existing JSON/markdown/HTML reporter writes but before
+   `process.exit`. So scripts that pipe `--json` into something
+   still get clean JSON, with a `Pushed: <url>` or `Push failed:
+   <reason>` line appended after.
+
+9. **Feature flag `NEXT_PUBLIC_PUSH_ENABLED`.** The dashboard runs
+   list and the `/dashboard/tokens` link are gated by this env var,
+   defaulting to off. The routes themselves are always live; only
+   the UI entry points are gated. Lets us ship the API, run a
+   smoke test against prod, and flip the flag to expose the UI in
+   one Vercel env-var change.
+
+10. **`NEXT_PUBLIC_PUSH_ENABLED` deliberately not added to Vercel
+    prod env yet.** The flag stays off in production until the
+    cross-repo smoke test (issue 5 of the PRD) confirms the CLI →
+    API → dashboard pipe works end-to-end against prod. Migration
+    against the Neon **dev** branch is in place; the prod migration
+    runs as part of the smoke test.
+
+11. **Lockfile sync as a separate `fix(deps)` commit.** The web
+    subagent added `zod` and `vitest` to `package.json` but the
+    lockfile regen step did not happen in-session, breaking the
+    Vercel deploy (`ERR_PNPM_OUTDATED_LOCKFILE` because Vercel
+    runs `pnpm install --frozen-lockfile` in CI). Fixed locally
+    via `pnpm install --no-frozen-lockfile
+    --config.dangerouslyAllowAllBuilds=true` and committed as a
+    separate `fix(deps): sync pnpm-lock.yaml` commit so the diff
+    history shows what happened. **Lesson for future agents:**
+    after `pnpm add`, always re-run install and commit the
+    lockfile in the same PR.

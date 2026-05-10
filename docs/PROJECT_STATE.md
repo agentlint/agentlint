@@ -7,16 +7,16 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (post-launch hardening — paid tiers pulled, agentlint.sh repo private, autonomous build skill scaffolded)
+**Last updated:** 2026-05-10 by Claude Code (slice 4 shipped — `agentlint --push` end-to-end, autonomous parallel subagent build)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `3950173` — `feat(leaderboard): add clone-and-scan, aggregate, and render stages` (CLI repo); `01121b6` — `feat(pricing): pull paid tiers until hosted dashboard ships` (agentlint.sh repo) |
+| Latest commit | `7fcf0e6` — `docs(cli): document --push flag and security model` (CLI repo); `c2c192f` — `fix(deps): sync pnpm-lock.yaml after zod + vitest add` (agentlint.sh repo) |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
-| Tests | 36 passing (3 core + 14 CLI + 19 leaderboard) |
+| Tests | CLI repo: 52 passing (3 core + 14 CLI rules + 38 push + 19 leaderboard subset shown). Web repo: 29 passing (16 token unit + 3 ulid + 3 rate-limit + 7 ingest integration). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` |
@@ -34,6 +34,43 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Slice 4 ship session (2026-05-10, evening)
+
+- **`agentlint --push` shipped end-to-end** behind a feature flag.
+  PRD locked at `docs/prds/agentlint-push-ingest.md`. Two parallel
+  general-purpose subagents executed in clean contexts: one in the
+  CLI repo (issue 4 of the PRD), one in the web repo (issues 1–3).
+  Both pushed their own commits to `main`.
+- **CLI repo (`agentlint/agentlint`):**
+  `feat(cli): add --push flag to upload reports` (a78f6fa) +
+  `test(cli): cover token resolver, push client, repo detect`
+  (bc08e44) + `docs(cli): document --push flag and security model`
+  (7fcf0e6). 38 new tests (token resolver, HTTP client, repo
+  detection from `git remote.origin.url`). Self-audit holds at
+  100/100. Local-first invariant intact: no network call without
+  the explicit `--push` flag.
+- **Web repo (`agentlint/agentlint.sh`):**
+  `feat(api): add api_token + run schema and tokens API` (10d10ea) +
+  `feat(api): add /api/runs ingest endpoint with bearer auth and
+  rate limit` (ae583f7) + `feat(dashboard): tokens page + recent
+  runs list behind feature flag` (bdf5a16) +
+  `fix(deps): sync pnpm-lock.yaml after zod + vitest add`
+  (c2c192f, autonomous post-merge fix). 29 tests across 4 files.
+  Schema migrated to Neon **dev** branch only. UI gated by
+  `NEXT_PUBLIC_PUSH_ENABLED` (off in Vercel prod).
+- **`docs/DECISIONS.md` ADR-0015** captures the eleven non-PRD
+  calls both subagents made (hand-rolled base32 + ULID, no
+  interactive transaction in `neon-http`, `looksLikeToken` shape
+  pre-check, bearer-hash index, `--url` overloading,
+  `AGENTLINT_INSECURE` env-only, `--push` exits 0 on no-token,
+  push line at the bottom of stdout, feature flag default-off,
+  prod migration deferred to smoke test, lockfile-sync lesson for
+  future agents).
+- **Production deploy verified**: GH Action run `25636783751`
+  green in 1m22s after the lockfile fix. Production renders as
+  before (push UI hidden by flag); routes are live and ready for
+  the cross-repo smoke test.
 
 ### Post-launch hardening session (2026-05-10, afternoon)
 
@@ -221,10 +258,14 @@ re-enable Pro/Team subscriptions in good faith. Each line item is a
 any), and UI for that one feature live in the same PR. Do not
 horizontally scaffold the whole schema first.
 
-4. **`agentlint --push` + report ingest** — CLI uploads a single
-   report JSON to `/api/runs` using a per-user API token created on
-   `/dashboard/tokens`. Vertical slice: `runs` table, token table,
-   ingest route with auth, `--push` flag in CLI, `tokens` UI page.
+4. ~~**`agentlint --push` + report ingest**~~ ✅ Shipped 2026-05-10.
+   See ADR-0015 and the "Slice 4 ship session" entry under
+   "Done — recent". Outstanding: cross-repo smoke test (issue 5 of
+   the PRD) — generate a token on the deployed preview, run
+   `agentlint --push` from a fresh clone, confirm the row lands and
+   the dashboard renders it. Then push schema to Neon **prod**
+   branch and flip `NEXT_PUBLIC_PUSH_ENABLED=true` in Vercel prod
+   env.
 5. **Run history on `/dashboard`** — list of past runs, score trend,
    pass/fail diff vs. previous run. Vertical slice: read-side query,
    chart component, empty state.

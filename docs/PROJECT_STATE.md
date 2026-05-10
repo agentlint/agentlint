@@ -7,32 +7,52 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code (overnight MVP — agentlint.sh app + leaderboard pipeline + launch copy)
+**Last updated:** 2026-05-10 by Claude Code (post-launch hardening — paid tiers pulled, agentlint.sh repo private, autonomous build skill scaffolded)
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
 | Branch | `main` |
-| Latest commit | `3950173` — `feat(leaderboard): add clone-and-scan, aggregate, and render stages` |
+| Latest commit | `3950173` — `feat(leaderboard): add clone-and-scan, aggregate, and render stages` (CLI repo); `01121b6` — `feat(pricing): pull paid tiers until hosted dashboard ships` (agentlint.sh repo) |
 | Self-audit | 100/100 (24 passes / 0 fails / 0 warnings) |
 | Tests | 36 passing (3 core + 14 CLI + 19 leaderboard) |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on `main` |
-| Repository | https://github.com/agentlint/agentlint (public, MIT). Website field: ✅ `https://agentlint.sh` |
+| CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Website field: `https://agentlint.sh` |
+| Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private** as of 2026-05-10 — see ADR-0013). 4 dependabot alerts open (2 high, 2 moderate); triage pending. |
 | npm package | ✅ [`@agentlinthq/cli@1.0.0`](https://www.npmjs.com/package/@agentlinthq/cli), [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) |
 | GitHub Release | ✅ [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
-| Domain | ✅ `agentlint.sh` registered (Cloudflare). DNS records prepared (see `docs/marketing/dns-cloudflare.md`); apex/www added to Vercel project. **DNS still needs to be applied at Cloudflare.** |
-| Landing app | ✅ deployed — repo `agentlint/agentlint.sh`, live at https://agentlint-h7tzcx0jl-agentlint.vercel.app/ (will move to `agentlint.sh` once DNS resolves). Routes `/`, `/pricing`, `/login`, `/leaderboard`, `/dashboard` (auth-gated). |
+| Domain | ✅ `agentlint.sh` live in production via Cloudflare DNS (apex + www). Preview deployments at `previo.agentlint.sh`. |
+| Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Vercel + GitHub auto-deploy on every push. |
 | Auth | ✅ better-auth + GitHub OAuth + Drizzle adapter; sessions persisted in Neon Postgres |
 | Database | ✅ Neon Postgres — separate prod and dev branches; schema migrated to both via `drizzle-kit push` |
-| Billing | ✅ Stripe test-mode wired end-to-end: products and recurring prices created (Pro $19/mo `price_1TVSfe9F4iHrjiRHkNR8TDfJ`, Team $99/mo `price_1TVSff9F4iHrjiRHwDarGSNC`), Checkout, Customer Portal, signature-verifying webhook. Webhook secret set in Vercel. |
+| Billing | ⚠️ **Paid tiers pulled from UI on 2026-05-10** (see ADR-0012). Stripe routes (`/api/stripe/checkout`, `/portal`, `/webhook`) remain deployed; products + recurring prices + webhook secret remain provisioned. `/pricing` shows Pro/Team as `Coming soon` with `Notify me at launch` mailto CTAs. Smoke-tested end-to-end before pulling — checkout, webhook, dashboard sub display, customer portal all verified. Re-enabling = revert `app/pricing/page.tsx`. |
 | Leaderboard tool | ✅ pipeline functions complete (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`). Bin entrypoint and first run still pending. |
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Post-launch hardening session (2026-05-10, afternoon)
+
+- **Cloudflare DNS applied — site live at `agentlint.sh` and
+  `previo.agentlint.sh`** (preview deployments). Vercel GitHub App
+  installed on the org; pushes to `agentlint/agentlint.sh` auto-deploy.
+- **Stripe purchase flow smoke-tested end-to-end** with test card
+  `4242 4242 4242 4242`. Checkout → webhook → subscription row in
+  Neon prod → dashboard display → customer portal — all verified.
+- **Paid tiers pulled from `/pricing` and `/dashboard`** (see
+  ADR-0012). Subscribe buttons replaced with `Notify me at launch`
+  mailto links; `Coming soon` badges added; status banner on the
+  pricing page tells visitors what's real. Stripe routes left intact
+  for one-PR re-enable when hosted features ship.
+- **`agentlint/agentlint.sh` repo flipped to private** (see
+  ADR-0013). CLI repo stays public/MIT. Hosted-layer schema, Stripe
+  wiring, dashboard implementation no longer publicly readable.
+- **DECISIONS log updated** — ADR-0012 (pull paid tiers) and
+  ADR-0013 (web repo private).
 
 ### Overnight MVP session (2026-05-10)
 
@@ -178,60 +198,82 @@ walk it top to bottom unless the human redirects.
    Configured via GitHub PAT (revoke after session per the security
    note below).
 
-### P1 — pre-launch (action items for human)
+### P1 — unblock paid tiers (must ship before re-enabling Stripe)
 
-4. **Apply Cloudflare DNS records** so `agentlint.sh` resolves to
-   Vercel. Records (proxy = DNS only, gray cloud, NOT orange):
-   - `A` `@` → `216.198.79.1`
-   - `CNAME` `www` → `cname.vercel-dns.com.`
-   Vercel verifies automatically and provisions the cert within minutes.
-5. **Install the Vercel GitHub App** on the `agentlint` org so future
-   pushes to `agentlint/agentlint.sh` auto-deploy:
-   <https://github.com/apps/vercel> → "Configure" → install on
-   `agentlint` org → grant access to `agentlint.sh` repo. Then in
-   Vercel UI: Project Settings → Git → "Connect Git Repository" →
-   pick `agentlint/agentlint.sh`.
-6. **Smoke-test the purchase flow.** Visit
-   `https://agentlint.sh/pricing` → "Subscribe" → check out with
-   Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
-   Verify subscription appears at `/dashboard` and the row exists in
-   the `subscription` table on Neon prod.
-7. **Switch Stripe to live mode** when ready. Create live products and
-   prices (or copy the test ones), generate live publishable + secret
-   keys, generate live webhook signing secret, update the four
-   Stripe-related Vercel env vars. Charter says never auto-flip live
-   mode — always a human decision.
-8. **Leaderboard first run.** Pipeline functions are written and
-   tested (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`),
-   but the runner bin and the GitHub Action that triggers it weekly
-   are not yet wired. Next session:
-   - `tools/leaderboard/src/run.ts` — bin entrypoint that orchestrates
-     the four stages, writes `data/aggregated/<date>.json` and
-     `out/leaderboard.html`.
-   - GitHub Action in `agentlint/agentlint.sh` that fetches the
-     latest aggregated JSON and serves it at `/leaderboard`.
-   - First public run scored against top 100 (not 1000) for sanity,
-     then ramp.
+The order below is the minimum hosted-dashboard surface required to
+re-enable Pro/Team subscriptions in good faith. Each line item is a
+**vertical slice** — the database table, API route, CLI flag (if
+any), and UI for that one feature live in the same PR. Do not
+horizontally scaffold the whole schema first.
+
+4. **`agentlint --push` + report ingest** — CLI uploads a single
+   report JSON to `/api/runs` using a per-user API token created on
+   `/dashboard/tokens`. Vertical slice: `runs` table, token table,
+   ingest route with auth, `--push` flag in CLI, `tokens` UI page.
+5. **Run history on `/dashboard`** — list of past runs, score trend,
+   pass/fail diff vs. previous run. Vertical slice: read-side query,
+   chart component, empty state.
+6. **Public score badge** — SVG endpoint `/badge/:owner/:repo.svg`
+   reads the most recent public run for that repo. Vertical slice:
+   public-flag column on `runs`, SVG renderer, README copy snippet on
+   `/dashboard`.
+7. **GitHub App for PR comments** — App posts a comment with score
+   diff on every PR push. Vertical slice: GitHub App registration,
+   webhook handler, install flow on `/dashboard`, comment template.
+8. **Org-level dashboard (Team)** — list of repos in an org with
+   their latest scores. Vertical slice: `org` membership table, query,
+   UI tab, gating by Team subscription.
+9. **Policy thresholds (Team)** — org admins can set a minimum
+   passing score; CLI reads the org policy via `--push` response and
+   exits non-zero if below threshold. Vertical slice: policy table,
+   read endpoint, CLI handling, UI editor.
+
+Once 4–9 ship, revert ADR-0012 (re-enable Pro/Team in `/pricing`),
+flip Stripe to live mode, announce in the Pro changelog.
+
+### P1 — leaderboard launch (parallel track, no Stripe dependency)
+
+10. **Leaderboard runner + first public run.** Pipeline functions are
+    written and tested (`fetch-repos`, `clone-and-scan`, `aggregate`,
+    `render`); orchestration and a public page are not. Vertical slice:
+    - `tools/leaderboard/src/run.ts` — bin entrypoint that orchestrates
+      the four stages, writes `data/aggregated/<date>.json` and
+      `out/leaderboard.html`.
+    - Weekly GitHub Action in `agentlint/agentlint.sh` (or the CLI
+      repo) that runs the pipeline and commits the aggregated JSON.
+    - `/leaderboard` page in `agentlint.sh` reads the latest JSON
+      (build-time or revalidate-on-request) and renders the table.
+    - First public run scored against top 100 (not 1000) for sanity,
+      then ramp.
+
+### P1 — hygiene
+
+11. **Triage 4 dependabot alerts on `agentlint/agentlint.sh`** (2
+    high, 2 moderate). Auto-merge after CI if low blast-radius;
+    investigate otherwise.
+12. **Switch Stripe to live mode** — only after 4–9 ship and ADR-0012
+    is reverted. Create live products + prices, regenerate webhook
+    secret, update four Vercel env vars. Charter says never
+    auto-flip — always a human decision.
 
 ### P2 — 1.x roadmap
 
-9. **Hosted dashboard** (separate repo): Next.js + Convex, GitHub OAuth,
-   run history, badges, GitHub App for PR comments, Stripe billing
-   ($19/mo Pro, $99/mo Team). See [`DECISIONS.md`](./DECISIONS.md) for
-   the pricing rationale.
-10. **`agentlint --push`** to upload reports to the hosted dashboard.
-    Opt-in only; never default.
-11. **More rules.** Candidates: `.well-known/agents.txt`, MCP server
+13. **More rules.** Candidates: `.well-known/agents.txt`, MCP server
     manifests, more granular CI/CD agent-readiness signals.
+14. **Annual plans, educational discounts, enterprise pricing page.**
 
 ## Next milestones
 
-- **M1 — npm reserved + domain bought.** Unblocks public landing page.
-- **M2 — Landing page live.** Unblocks launch.
-- **M3 — Public launch.** HN post, X thread, PH listing, leaderboard
-  blog post all on the same day. Coordinated by the agent, signed off by
-  the human.
-- **M4 — Hosted dashboard MVP.** First paying user.
+- ~~**M1 — npm reserved + domain bought.**~~ ✅ Done.
+- ~~**M2 — Landing page live.**~~ ✅ Done. `agentlint.sh` resolves;
+  Vercel auto-deploys on push.
+- **M3 — Hosted dashboard MVP.** Vertical features 4–9 above ship,
+  ADR-0012 reverts, Pro/Team re-enabled, Stripe flips live. Target:
+  one feature per PR, TDD, parallel agents on independent slices.
+- **M4 — First paying user.** Public announcement of paid tiers,
+  ingest at least one PR comment + badge in the wild.
+- **M5 — Public leaderboard.** First weekly run published, blog post
+  out, HN/X/PH coordinated launch.
 
 ## Maintenance ritual (each session)
 

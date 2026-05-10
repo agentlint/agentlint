@@ -297,3 +297,78 @@ agent maintainers can be invited into. We document the discrepancy
 openly in the README so users aren't surprised, and we leave the door
 open to claim the bare `agentlint` scope later if the unscoped package
 is ever released.
+
+## ADR-0012 — Pull paid tiers from `/pricing` until hosted dashboard ships
+
+**Date:** 2026-05-10
+**Status:** accepted
+
+**Context.** The Pro ($19/mo) and Team ($99/mo) tiers were live on
+`/pricing` with working Stripe Checkout, but the features they
+promised — hosted run history, GitHub PR comments, public score
+badge, org-level dashboard, policy thresholds — were not yet built.
+Charging real money for vapor would burn trust and risks chargebacks
+once buyers realize there's nothing to consume. The CLI side (Free
+tier) is fully delivered and stays.
+
+**Options.**
+- (a) Keep paid tiers live, build features in parallel, accept that
+  early subscribers pay for unfinished product.
+- (b) Pull paid tiers from the UI, replace `Subscribe` CTAs with
+  `Notify me at launch` mailto links, leave Stripe routes wired so
+  re-enabling is one PR.
+- (c) Delete the Stripe integration entirely until features ship.
+
+**Choice.** (b). `/pricing` keeps all three tiers visible for
+roadmap signaling and SEO. Pro and Team show a `Coming soon` badge,
+their CTAs are `mailto:hello@agentlint.sh?subject=Notify me when X
+launches`, and a status banner up top tells visitors what's real.
+`/dashboard` empty state matches: free CLI message + notify-at-launch
+link instead of "upgrade to Pro". Stripe checkout/portal/webhook
+routes stay deployed so we don't re-do the integration when features
+land.
+
+**Why.** Trust > revenue at this stage. Charter §3 (Definition of
+done) says "what we ship works" — selling features that don't exist
+inverts that. Keeping the tiers visible (vs. deleting the page)
+signals direction to candidates, journalists, and investors. The
+mailto waitlist gives us the only signal that matters during the
+build phase: which plan people actually want. Re-enabling is a
+five-minute revert when the hosted dashboard is real, with the
+Stripe products and webhook secret already provisioned.
+
+## ADR-0013 — `agentlint/agentlint.sh` repo flipped private; CLI repo stays public
+
+**Date:** 2026-05-10
+**Status:** accepted
+
+**Context.** Two GitHub repos: `agentlint/agentlint` (the open-source
+CLI, MIT, public) and `agentlint/agentlint.sh` (the marketing site +
+auth + dashboard + Stripe wiring). The `.sh` repo was created public
+during the overnight MVP. Anyone could read the full Stripe
+integration, the Drizzle schema, the better-auth wiring, and the
+dashboard implementation — i.e. everything required to clone the
+SaaS layer without writing it.
+
+**Options.**
+- (a) Keep public, accept that the SaaS layer is undifferentiated and
+  bet that no one bothers cloning.
+- (b) Make private, treat the CLI as the open product and the hosted
+  layer as proprietary, mirror Linear/Vercel/PostHog (which keep
+  their hosted-control-plane code closed even when CLIs and SDKs are
+  open).
+- (c) Make private but extract a separately-licensed reference
+  template later.
+
+**Choice.** (b). `agentlint/agentlint.sh` flipped to private via
+`gh repo edit --visibility private` on 2026-05-10. The CLI repo
+stays public and MIT.
+
+**Why.** The CLI is the wedge and benefits from being readable,
+forkable, and copy-pasteable — that's the open-core thesis (ADR-0001).
+The hosted layer is the moat: schema, billing wiring, dashboard
+shape, GitHub App integration, leaderboard pipeline. There's no user
+benefit to making it readable and there's a real competitive cost.
+Reversible at any time via `gh repo edit --visibility public`. (c)
+is fine but not now — the code isn't stable enough to be a useful
+template, and template-extraction is a one-day chore once it is.

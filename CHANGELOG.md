@@ -5,6 +5,57 @@ All notable changes to agentlint are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-05-11
+
+Programmatic API + policy-aware exit codes. The CLI binary, flags, and
+report shape are unchanged for free-tier users; the new exit code only
+fires when an org enables a server-side policy on Team plan.
+
+### Added
+
+- **Programmatic `runScan` export.** `@agentlinthq/cli` now exposes a
+  stable Node API via `package.main`:
+
+  ```ts
+  import { runScan, type Report, VERSION } from "@agentlinthq/cli";
+  const report = await runScan({ cwd: process.cwd(), url: undefined });
+  ```
+
+  `runScan({ cwd, url? }): Promise<Report>` runs the same rule set the
+  binary runs and returns the `Report` shape from `@agentlinthq/core`.
+  The CLI binary at `bin/agentlint` delegates to this same function —
+  one implementation, no drift between programmatic and CLI consumers.
+  Use it from custom runners, the hosted scan-worker, or test suites.
+- **Policy-aware `--push` exit code.** When the server's `POST /api/runs`
+  response carries a `policy` block (Team plan + configured minimum
+  score), `--push` honors it:
+  - `policy.enforce && !policy.passed` → exit **`2`** with
+    `Policy failed: score X is below minimum Y` on stderr.
+  - Exit `1` stays reserved for the local-score < 80 gate.
+  - Policy fails win when both would fire, so CI can distinguish a
+    regression from a policy breach.
+
+  Pre-policy servers and free-tier orgs return no `policy` field; the
+  CLI sees `policy: null` and behaves exactly as in 2.1.
+
+### Changed
+
+- `pushReport()` success shape gained `policy: PolicyEvaluation | null`.
+  The `score`, `passes`, `fails`, `warnings`, `skipped`, `repo`,
+  `public`, `pr`, `report` fields are unchanged. Defensive
+  `parsePolicy()` ignores malformed values.
+
+### Compatibility
+
+- New exit code `2` is opt-in: it only fires for orgs that enable the
+  Team-plan policy feature. Free-tier users see no behavior change.
+  Documented as a soft compatibility break; not a major bump.
+
+### What's next
+
+- Public leaderboard for opted-in public repos lands next — see
+  `agentlint.sh/leaderboard`.
+
 ## [2.1.0] - 2026-05-10
 
 - `agentlint login` subcommand (RFC 8628 device flow against agentlint.sh).
@@ -165,6 +216,8 @@ Initial public release.
   with a human in the loop; the operating model is public.
 - Self-audit: the repository scores 100/100 on its own rubric.
 
+[2.2.0]: https://github.com/agentlint/agentlint/releases/tag/v2.2.0
+[2.1.0]: https://github.com/agentlint/agentlint/releases/tag/v2.1.0
 [2.0.0]: https://github.com/agentlint/agentlint/releases/tag/v2.0.0
 [1.1.0]: https://github.com/agentlint/agentlint/releases/tag/v1.1.0
 [1.0.0]: https://github.com/agentlint/agentlint/releases/tag/v1.0.0

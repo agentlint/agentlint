@@ -63,7 +63,7 @@ function makeDeps(overrides: Partial<LoginDeps> & Pick<LoginDeps, "fetchFn">): {
       browserCalls.push(u);
     },
     getEnv: () => undefined,
-    clientVersion: "2.1.0",
+    clientVersion: "2.2.0",
     now: () => 1000,
     ...overrides,
   };
@@ -119,7 +119,7 @@ describe("runLogin", () => {
     expect(calls[0]?.url).toBe("http://localhost:3000/api/cli/auth/device");
     expect(calls[1]?.url).toBe("http://localhost:3000/api/cli/auth/poll");
     expect((calls[0]?.body as Record<string, unknown>).client_name).toBe(
-      "agentlint-cli/2.1.0",
+      "agentlint-cli/2.2.0",
     );
   });
 

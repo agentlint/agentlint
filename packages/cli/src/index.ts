@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { buildReport, registerRuleCategory } from "@agentlinthq/core";
 import { runInit } from "./init/index.js";
+import { runInstallSecret } from "./install-secret/index.js";
 import { runLogin } from "./login/index.js";
 import { writeTokenFile } from "./login/token-file.js";
 import { runLogout } from "./logout/index.js";
@@ -37,6 +38,10 @@ async function main() {
   }
   if (rawArgs[0] === "logout") {
     await runLogoutCommand(rawArgs.slice(1));
+    return;
+  }
+  if (rawArgs[0] === "install-secret") {
+    await runInstallSecretCommand(rawArgs.slice(1));
     return;
   }
 
@@ -154,6 +159,7 @@ interface InitCliFlags {
   yes?: boolean;
   "no-workflow"?: boolean;
   "force-workflow"?: boolean;
+  "no-install-secret"?: boolean;
   help?: boolean;
 }
 
@@ -171,6 +177,7 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
       yes: { type: "boolean", short: "y" },
       "no-workflow": { type: "boolean" },
       "force-workflow": { type: "boolean" },
+      "no-install-secret": { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
     strict: true,
@@ -196,6 +203,7 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
       yes: flags.yes,
       noWorkflow: flags["no-workflow"],
       forceWorkflow: flags["force-workflow"],
+      noInstallSecret: flags["no-install-secret"],
     },
     {
       cwd: process.cwd(),
@@ -290,6 +298,75 @@ async function runLogoutCommand(logoutArgs: string[]): Promise<void> {
   const log = (line: string) => console.log(line);
   await runLogout({ log });
   process.exit(0);
+}
+
+interface InstallSecretCliFlags {
+  endpoint?: string;
+  help?: boolean;
+}
+
+/**
+ * Dispatch for `agentlint install-secret`. POSTs to the server, which uses
+ * its GitHub App installation token to push AGENTLINT_TOKEN as a repo secret.
+ * Exit codes:
+ *   0 installed
+ *   1 no-token
+ *   2 no-config / no-project-id
+ *   3 app-not-installed / app-lacks-permission
+ *   4 network-error / github-api-failed
+ *   5 unauthorized
+ */
+async function runInstallSecretCommand(args: string[]): Promise<void> {
+  const parsed = parseArgs({
+    args,
+    options: {
+      endpoint: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+  });
+  const flags = parsed.values as InstallSecretCliFlags;
+  if (flags.help) {
+    printInstallSecretHelp();
+    return;
+  }
+  const log = (line: string) => console.log(line);
+  const outcome = await runInstallSecret(
+    { endpoint: flags.endpoint },
+    { cwd: process.cwd(), log },
+  );
+  process.exit(installSecretExitCode(outcome.kind));
+}
+
+function installSecretExitCode(
+  kind:
+    | "installed"
+    | "no-token"
+    | "no-config"
+    | "no-project-id"
+    | "app-not-installed"
+    | "app-lacks-permission"
+    | "github-api-failed"
+    | "network-error"
+    | "unauthorized",
+): number {
+  switch (kind) {
+    case "installed":
+      return 0;
+    case "no-token":
+      return 1;
+    case "no-config":
+    case "no-project-id":
+      return 2;
+    case "app-not-installed":
+    case "app-lacks-permission":
+      return 3;
+    case "network-error":
+    case "github-api-failed":
+      return 4;
+    case "unauthorized":
+      return 5;
+  }
 }
 
 /**
@@ -483,6 +560,8 @@ Usage:
   agentlint init             Set up .agentlint.json for --push
   agentlint login            Authorize the CLI via the device flow
   agentlint logout           Delete the local token file
+  agentlint install-secret   Install AGENTLINT_TOKEN as a repo secret via
+                             the agentlint GitHub App (no browser paste).
 
 Options:
   --json                     Machine-readable JSON to stdout
@@ -532,6 +611,9 @@ Options:
   --endpoint <url>           API base URL (default: https://agentlint.sh).
   --no-workflow              Skip writing .github/workflows/agentlint.yml.
   --force-workflow           Overwrite an existing workflow file.
+  --no-install-secret        Skip the post-init call to install-secret
+                             (don't push AGENTLINT_TOKEN as a repo secret
+                             via the agentlint GitHub App).
   --yes, -y                  Non-interactive: fail rather than prompting.
   --help, -h                 Show this message
 `);
@@ -563,6 +645,35 @@ agentlint logout  —  delete the local token file
 
 Usage:
   agentlint logout
+`);
+}
+
+function printInstallSecretHelp() {
+  console.log(`
+agentlint install-secret  —  install AGENTLINT_TOKEN as a repo secret
+
+Usage:
+  agentlint install-secret [options]
+
+The CLI POSTs to /api/projects/:id/install-secret using the project token
+read from AGENTLINT_TOKEN (or ~/.config/agentlint/token). The server uses
+the agentlint GitHub App's installation token to PUT AGENTLINT_TOKEN as
+an encrypted repo secret — no browser paste required.
+
+Requires a .agentlint.json in the current directory (run 'agentlint init'
+first if you don't have one).
+
+Options:
+  --endpoint <url>           API base URL (default: https://agentlint.sh).
+  --help, -h                 Show this message
+
+Exit codes:
+  0  installed
+  1  no token resolvable (run 'agentlint login')
+  2  no .agentlint.json / missing projectId (run 'agentlint init')
+  3  GitHub App not installed or lacks permission (see message)
+  4  network or GitHub API error
+  5  token rejected
 `);
 }
 

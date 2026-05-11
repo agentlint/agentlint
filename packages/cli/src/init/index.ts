@@ -13,8 +13,11 @@
 // The flow is split into a pure `runInit` that takes injectable IO + the
 // thin `bin` entrypoint. Tests only exercise `runInit`.
 
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { LoginDeps, LoginFlags, LoginOutcome } from "../login/index.js";
+import { runLogin } from "../login/index.js";
+import { readTokenFile as realReadTokenFile } from "../login/token-file.js";
 import {
   type AgentlintConfig,
   CONFIG_FILENAME,
@@ -26,6 +29,7 @@ import {
 } from "../push/project-lookup.js";
 import { detectRepo, type ExecFn } from "../push/repo-detect.js";
 import { TOKEN_ENV_VAR } from "../push/token.js";
+import { WORKFLOW_PATH, workflowYaml } from "./workflow-template.js";
 
 export const DEFAULT_PUSH_URL = "https://agentlint.sh";
 
@@ -46,17 +50,38 @@ export interface InitFlags {
   endpoint?: string;
   /** `--yes` — don't prompt; fail if we'd need to. */
   yes?: boolean;
+  /** `--no-workflow` — skip writing .github/workflows/agentlint.yml. */
+  noWorkflow?: boolean;
+  /** `--force-workflow` — overwrite an existing workflow file. */
+  forceWorkflow?: boolean;
 }
+
+export type MkdirFn = (path: string) => Promise<void>;
+
+export type StatFn = (path: string) => Promise<{ isFile: boolean } | null>;
+
+export type ReadTokenFileFn = () => Promise<string | null>;
+
+export type RunLoginInlineFn = (
+  flags: LoginFlags,
+  deps: LoginDeps,
+) => Promise<LoginOutcome>;
 
 export interface InitDeps {
   cwd: string;
   log: Logger;
   prompt: PromptFn;
   writeFileFn?: WriteFileFn;
+  mkdirFn?: MkdirFn;
+  statFn?: StatFn;
   getEnv?: GetEnvFn;
   execFn?: ExecFn;
   fetchFn?: LookupFetchFn;
   endpoint?: string;
+  /** Read the on-disk token file. Override for tests. */
+  readTokenFile?: ReadTokenFileFn;
+  /** Run the device-flow login inline. Override for tests. */
+  runLoginFn?: RunLoginInlineFn;
 }
 
 export type InitOutcome =
@@ -70,8 +95,14 @@ export type InitOutcome =
 const SIGN_UP_HINT = `${DEFAULT_PUSH_URL}/cli/auth`;
 
 /**
- * Resolve the project token. Precedence: `--token` flag → AGENTLINT_TOKEN
- * env → interactive prompt. Returns null if no token was obtained.
+ * Resolve the project token. Precedence:
+ *   1. `--token` flag
+ *   2. `AGENTLINT_TOKEN` env var
+ *   3. `~/.config/agentlint/token` (written by `agentlint login`)
+ *   4. Offer to run `agentlint login` inline; on success, use that token.
+ *   5. Interactive paste as a final fallback.
+ *
+ * Returns null if no token was obtained.
  */
 async function resolveInitToken(
   flags: InitFlags,
@@ -85,9 +116,35 @@ async function resolveInitToken(
     return fromEnv.trim();
   }
 
+  const readTokenFile = deps.readTokenFile ?? (() => realReadTokenFile());
+  const fromFile = await readTokenFile();
+  if (typeof fromFile === "string" && fromFile.trim().length > 0) {
+    return fromFile.trim();
+  }
+
   if (flags.yes) return null;
+
+  // Offer to run the device flow inline. The user can decline and paste a
+  // token instead — the flow used to be paste-only and we keep that path.
   deps.log("");
-  deps.log(`No ${TOKEN_ENV_VAR} env var set.`);
+  deps.log(`No ${TOKEN_ENV_VAR} env var or token file found.`);
+  const loginAnswer = await deps.prompt(`Run 'agentlint login' first? (Y/n) `);
+  const wantsLogin = !/^n/i.test(loginAnswer.trim());
+  if (wantsLogin) {
+    const runLoginFn = deps.runLoginFn ?? runLogin;
+    const outcome = await runLoginFn(
+      { endpoint: flags.endpoint },
+      { log: deps.log },
+    );
+    if (outcome.kind === "success") return outcome.token;
+    deps.log("");
+    if (outcome.kind === "denied") deps.log("Login denied.");
+    else if (outcome.kind === "expired") deps.log("Login expired.");
+    else deps.log(`Login failed: ${outcome.reason}`);
+    deps.log(`  Open ${SIGN_UP_HINT} to generate a token manually.`);
+    return null;
+  }
+
   deps.log(`  Open ${SIGN_UP_HINT} to generate a project token.`);
   const answer = await deps.prompt(`Paste your token: `);
   const trimmed = answer.trim();
@@ -222,13 +279,74 @@ export async function runInit(
   if (config.orgSlug) deps.log(`  orgSlug:   ${config.orgSlug}`);
   deps.log(`  repo:      ${config.repoOwner}/${config.repoName}`);
   deps.log(`  branch:    ${config.prodBranch}`);
+
+  await maybeWriteWorkflow(flags, deps);
+
   deps.log("");
-  deps.log("Next: store your token as the AGENTLINT_TOKEN repo secret, then");
-  deps.log("add this step to your GitHub Actions workflow:");
-  deps.log("");
-  deps.log(githubActionsSnippet());
+  deps.log("Next: store your token as the AGENTLINT_TOKEN repo secret:");
+  deps.log(
+    `  https://github.com/${config.repoOwner}/${config.repoName}/settings/secrets/actions/new`,
+  );
+  deps.log("  Name:   AGENTLINT_TOKEN");
+  deps.log("  Secret: (the token written to ~/.config/agentlint/token)");
 
   return { kind: "wrote-config", configPath, config };
+}
+
+/**
+ * Write `.github/workflows/agentlint.yml` unless `--no-workflow` is set.
+ * Refuses to overwrite an existing file unless `--force-workflow` is set.
+ *
+ * Failures here are logged but don't fail `init` — the user can hand-add
+ * the workflow file (we still print a hint).
+ */
+async function maybeWriteWorkflow(
+  flags: InitFlags,
+  deps: InitDeps,
+): Promise<void> {
+  if (flags.noWorkflow) {
+    deps.log("");
+    deps.log(`Skipped ${WORKFLOW_PATH} (--no-workflow).`);
+    return;
+  }
+
+  const target = join(deps.cwd, WORKFLOW_PATH);
+  const statFn =
+    deps.statFn ??
+    (async (p: string) => {
+      try {
+        const st = await stat(p);
+        return { isFile: st.isFile() };
+      } catch {
+        return null;
+      }
+    });
+
+  const existing = await statFn(target);
+  if (existing?.isFile && !flags.forceWorkflow) {
+    deps.log("");
+    deps.log(`${WORKFLOW_PATH} already exists — leaving it alone.`);
+    deps.log("  Re-run with --force-workflow to overwrite.");
+    return;
+  }
+
+  const mkdirFn =
+    deps.mkdirFn ??
+    ((p: string) => mkdir(p, { recursive: true }).then(() => {}));
+  const writeFileFn = deps.writeFileFn ?? ((p, c) => writeFile(p, c, "utf-8"));
+
+  try {
+    await mkdirFn(dirname(target));
+    await writeFileFn(target, workflowYaml());
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    deps.log("");
+    deps.log(`Failed to write ${WORKFLOW_PATH}: ${reason}`);
+    return;
+  }
+
+  deps.log("");
+  deps.log(`Wrote ${WORKFLOW_PATH}.`);
 }
 
 /**

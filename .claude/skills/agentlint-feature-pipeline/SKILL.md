@@ -1,282 +1,304 @@
 ---
 name: agentlint-feature-pipeline
-description: Drive the agentlint hosted-dashboard build forward autonomously. Pick the next unfinished P1 vertical slice from docs/PROJECT_STATE.md, grill yourself on it, write a PRD, cut vertical issues, ship them under TDD, then update state and commit. Use this whenever the user says "next feature", "keep building", "continue the pipeline", "ship the next slice", "/agentlint-feature-pipeline", or any equivalent prompt that means "autonomous-build mode on this repo." Also trigger when no specific feature is named but the user wants forward progress on the agentlint hosted dashboard, the leaderboard, or any P1 item in PROJECT_STATE.
+description: Autonomous build pipeline for ANY agentlint feature — CLI, web (`agentlint.sh`), leaderboard tool, docs, or rules. Takes a feature description (user-supplied or picked from `docs/PROJECT_STATE.md`), runs `grill-me` → `to-prd` → `to-issues` → `tdd`, dispatches independent slices to parallel sub-agents, then runs the close-out ritual. Use whenever the user says "next feature", "ship X", "build feature Y", "continue the pipeline", "/agentlint-feature-pipeline", or otherwise asks for autonomous forward progress on this repo or its sibling `agentlint-sh` repo. Replaces the old P1-only flavor — works for any feature, not just hosted-dashboard slices.
 ---
 
 # agentlint-feature-pipeline
 
-Autonomous build pipeline for the agentlint hosted dashboard and leaderboard.
-You are the executing agent — not a planner that hands work off. Read this
-top to bottom once, then run it.
+Generic autonomous build pipeline for agentlint and the sibling web app.
+
+You are the executing agent. Read this top to bottom once, then run it.
 
 ## What this skill is for
 
-agentlint has a public CLI (open-source, MIT, `agentlint/agentlint`) and a
-private web app (`agentlint/agentlint.sh`). Pro and Team subscriptions are
-**pulled from the UI** until the hosted-dashboard surface is real (see
-[ADR-0012](../../../docs/DECISIONS.md)). Your job is to ship that surface,
-one vertical slice per run.
+agentlint is a TypeScript monorepo:
 
-The pipeline is fixed. Walk through it in order. The point of fixing it is
-that decisions stay legible and the human reviewer always knows where in the
-loop you are.
+- `packages/cli` + `packages/core` — public, MIT, npm name `@agentlinthq/cli`
+- `tools/leaderboard` — private workspace, never published
+- sibling repo `agentlint-sh` at `~/Code/agentlint-sh/` — private Next.js 15
+  web app (`agentlint.sh`), Better-Auth + Drizzle + Neon + Stripe
+
+This skill drives a feature end-to-end: scope it, write a PRD, slice it into
+vertical issues, ship them under TDD, then close out. The pipeline order is
+**fixed** so the human reviewer always knows where in the loop you are.
 
 ## Inputs
 
-None. The skill reads `docs/PROJECT_STATE.md` itself.
+Two modes. Both supported.
 
-## Outputs per run
+### Mode A — explicit feature
 
-- One PRD at `docs/prds/<slug>.md` (committed to the CLI repo).
-- 3–7 vertical issues — filed on GitHub if `gh` is wired to an issue tracker
-  for this repo, otherwise written as a markdown checklist at the bottom of
-  the PRD.
-- Code, tests, and migrations for the slice (CLI repo, web repo, or both).
-- `docs/PROJECT_STATE.md` "Done — recent" updated.
-- `docs/DECISIONS.md` appended with a new ADR if any non-obvious choice was
-  made (anything a future contributor might ask "why?" about).
-- Commits in Conventional Commits format. Push at the end.
+The user supplied a feature description in the prompt. Use it. Restate it in
+your own words in step 1 so the human can correct course before any code is
+written. A feature can be anything that fits in 1–3 PRs:
 
-## STOP condition
+- a new CLI subcommand or flag
+- a new web route, dashboard surface, or auth flow
+- a new check or category of rules
+- a leaderboard milestone (orchestrator, weekly run, public page)
+- an ops upgrade (telemetry, billing flow, env split)
+- a docs / marketing artefact (a launch post counts as a feature here)
 
-If `docs/PROJECT_STATE.md` has no unfinished P1 vertical slice (items 4–9
-under "P1 — unblock paid tiers", or a successor list once those are done),
-emit a single line:
+### Mode B — no feature specified
+
+Open `docs/PROJECT_STATE.md`. Pick the lowest-numbered unfinished item under
+**Pending — prioritized**. If multiple priorities exist, prefer:
+
+1. **P0** — needed before public launch
+2. **P1 — unblock paid tiers** — vertical slices that bring back Pro/Team
+3. **P1 — leaderboard launch**
+4. **P1 — hygiene**
+5. **P2 — 1.x roadmap**
+
+State which slice you picked and why in step 1.
+
+### STOP condition
+
+Mode B only. If `PROJECT_STATE.md` has zero pending items, emit:
 
 ```
-agentlint-feature-pipeline: no P1 slices pending. Next gate: revert ADR-0012 + flip Stripe live.
+agentlint-feature-pipeline: no pending work. Suggest opening a PRD for a P2/P3 item or shipping a docs/marketing pass.
 ```
 
 …and exit. Do not invent work.
 
 ## Pipeline
 
-### 1. READ PENDING
+### 1. RESTATE
 
-Open `docs/PROJECT_STATE.md`. Find the lowest-numbered unfinished item under
-**P1 — unblock paid tiers** (4–9). State, in one paragraph:
+In one paragraph state:
 
-- Slice title
-- The user-visible feature it unlocks
-- Affected repos (CLI, web, or both)
-- The "Done" check — what an external observer should see when the slice
-  has shipped
+- **Feature title** (kebab-case slug you'll use for the PRD file)
+- **User-visible outcome** — what the user does after this ships that they
+  cannot do today
+- **Affected surfaces** — CLI repo, web repo, both, docs only, etc.
+- **Done check** — a single observable thing an external reviewer can
+  verify (e.g. "`agentlint --push` from a fresh repo writes a row in
+  `run`, p95 under 3s")
 
-If the leaderboard track (item 10) is also pending and the dashboard slice
-is blocked on a human decision, you may pick the leaderboard slice instead.
-Say so explicitly and continue.
+If the feature is large enough that the Done check is fuzzy, that is a
+signal it needs to be sliced before this run. Either narrow scope here, or
+call it out and pick the first sub-slice.
 
 ### 2. SELF-INTERROGATE via grill-me
 
-Invoke the `grill-me` skill with the chosen slice as the subject. The point
-is to surface every branch of the decision tree before any code is written.
+Invoke the `grill-me` skill on the chosen feature. **Answer your own
+questions** — do not block on the human. Decisions you make autonomously
+are logged in the PRD's "Open questions" section as `RESOLVED:` lines so
+they're auditable.
+
 At minimum, resolve:
 
-- **Scope.** What is in this slice? What is explicitly out of it?
-- **Schema shape.** Tables, columns, indexes, foreign keys. Migration
-  direction (forward + rollback). Whose data lives where (per-user,
-  per-org, public)?
-- **Auth model.** Session-cookie? API token? Both? Token rotation? Scope
-  per token?
-- **API surface.** Routes added or changed. Request and response shapes.
-  Error envelope. Rate limiting.
-- **CLI surface (if any).** New flags. Default off. Local-first invariant
-  preserved (CLI must not phone home unless the user opts in via `--push`
-  or equivalent).
-- **UI surface.** New routes, components, empty states, error states.
-- **Failure modes.** What happens if the network fails? If the token is
-  revoked? If the schema migration partially applies? If the user is on the
-  free plan and hits a paid feature?
-- **Observability.** What logs land where. What is alertable.
-- **Rollout.** Behind a feature flag? Killable how?
+- **Scope.** In/out. Non-goals.
+- **Schema shape.** Tables, columns, indexes, FKs. Forward + rollback
+  migration. Org-scoped, user-scoped, public? (v2 schema FKs every
+  business table to `organization.id` — see ADR-0018.)
+- **Auth model.** Session-cookie? Project token (`agl_proj_…`)? GitHub
+  Actions OIDC? Device-flow? Token scope and rotation.
+- **API surface.** Routes added or changed. Request/response shapes.
+  Error envelope. Rate limits. Idempotency.
+- **CLI surface.** New flags. Default off. Local-first invariant
+  preserved — no network in the default code path.
+- **UI surface.** New routes, components, empty/error states, copy.
+- **Failure modes.** Network down. Token revoked. Migration half-applied.
+  Free-plan user hits paid feature. Multi-org user.
+- **Observability.** What logs land where. Alertable.
+- **Rollout.** Feature flag? Killable how?
+- **Charter check.** Score-of-100 invariant intact? Local-first
+  invariant intact? Public scoring API untouched? If a charter
+  boundary is crossed (rule weights, `CATEGORY_MAX`, Stripe live-mode,
+  CLI default-on network, repo visibility flip), **stop and escalate**.
 
-Make the calls. Do not punt to the human unless a charter-level boundary
-is hit — see the autonomy table in [`CHARTER.md`](../../../docs/CHARTER.md).
-Charter-level escalations include: changing rule weights, changing
-`CATEGORY_MAX`, anything that sends data over the network from the CLI by
-default, anything that changes the public scoring API, switching Stripe to
-live mode, taking the CLI repo private, taking the agentlint.sh repo
-public.
+Disagree-and-commit is allowed and encouraged. If a direction in
+`PROJECT_STATE.md` or an existing ADR seems suboptimal, log dissent as a new
+ADR in `docs/DECISIONS.md`, then ship the path you chose.
 
-You are allowed — encouraged — to disagree and commit. If you think a
-direction encoded in PROJECT_STATE is suboptimal, log the dissent in
-`docs/DECISIONS.md` as a new ADR, then ship the chosen path without
-sandbagging it.
+### 3. PRD via to-prd
 
-### 3. WRITE PRD via to-prd
-
-Invoke the `to-prd` skill. Output: `docs/prds/<slice-slug>.md`. The slug is
-kebab-case, derived from the slice title — e.g. `agentlint-push-ingest`,
-`run-history-dashboard`, `score-badge-svg`, `github-app-pr-comments`,
-`org-dashboard`, `policy-thresholds`.
+Invoke `to-prd`. Output: `docs/prds/<slug>.md` in this repo (the CLI repo
+holds all PRDs even when the work lives in `agentlint-sh`).
 
 Required sections, in this order:
 
-1. **Problem.** One paragraph. What is broken or missing.
-2. **Non-goals.** Bullet list. What this slice will not do.
-3. **Success metric.** A single, observable thing. Not "users love it" —
-   something like "calling `agentlint --push` from a CI run results in a
-   row in `runs` and a 200 response, end to end, in under 3 seconds at
-   p95."
-4. **Schema diff.** SQL or Drizzle snippet. Forward and rollback.
-5. **API surface.** Routes, methods, request/response JSON, status codes,
-   auth requirement.
-6. **CLI surface.** If applicable. Flag name, default, behavior.
-7. **UI surface.** Page or component diff at a high level — no pixel
-   pushing.
-8. **Security.** Token scope, what's hashed, what's logged, rate limits,
-   abuse cases.
-9. **Rollback.** What to do if this PR ships and breaks. The minimum is a
-   feature flag plus a documented revert commit.
-10. **Open questions.** Empty if grill-me worked. If non-empty, this slice
-    is not ready — go back to step 2 or escalate.
+1. **Problem.** One paragraph. What is missing or broken.
+2. **Non-goals.** Bullet list. Explicit out-of-scope.
+3. **Success metric.** One observable thing. Not "users love it" —
+   something measurable end-to-end.
+4. **Schema diff.** SQL or Drizzle snippet. Forward + rollback. Mark
+   "no schema change" if applicable.
+5. **API surface.** Routes, methods, request/response JSON, status
+   codes, auth requirement, rate limits.
+6. **CLI surface.** Flag/subcommand name, default, behavior, exit
+   codes. Mark "no CLI change" if applicable.
+7. **UI surface.** Page/component diff at a high level. Empty, loading,
+   error states. No pixel-pushing.
+8. **Security.** Token scope, what's hashed, what's logged, rate
+   limits, abuse cases, CSRF/replay/SSRF if applicable.
+9. **Rollback.** Feature flag + documented revert commit, minimum.
+10. **Open questions.** Empty when this skill resolves them
+    autonomously. Any `RESOLVED:` lines from step 2 live here as a
+    paper trail of decisions.
+11. **Issues.** Filled in by step 4.
 
-One PRD per vertical slice. **Do not write a shared schema PRD that other
-slices "extend" later.** Every slice owns its slice of the schema and ships
-it.
+One PRD per feature. **Do not write a shared schema PRD that other
+features "extend" later.** Each feature owns its slice of the schema and
+ships it.
 
 ### 4. CUT ISSUES via to-issues
 
-Invoke the `to-issues` skill on the PRD. Aim for 3–7 issues. Each must be
+Invoke `to-issues` on the PRD. Aim for 3–7 issues. Each must be
 **independently shippable**:
 
-- Each issue owns its slice of the schema, API, CLI flag, and UI.
-- An issue is allowed to add migrations, routes, components, and tests in
-  the same PR.
+- An issue owns its slice of the schema, API, CLI flag, and UI.
+- An issue may add migrations, routes, components, and tests in one PR.
 - Forbidden patterns:
-  - "Add all DB tables for the dashboard" (horizontal — cuts across
-    slices)
-  - "Scaffold all hosted API routes" (same problem)
+  - "Add all DB tables for the dashboard" (horizontal scaffolding)
+  - "Scaffold all API routes" (same problem)
   - "Set up auth tokens" as a standalone issue when no feature consumes
     them yet (premature scaffolding)
 - Encouraged patterns:
-  - "End-to-end `agentlint --push` for the local user" — owns the table,
-    the token, the route, the CLI flag, and the dashboard list.
-  - "Public score badge for `<owner>/<repo>`" — owns the public flag on
-    `runs`, the SVG endpoint, and the README copy snippet.
+  - "End-to-end `agentlint --push` for the local user" — owns the
+    table, the token, the route, the CLI flag, and the dashboard list.
+  - "Public score badge for `<owner>/<repo>`" — owns the public flag
+    on `runs`, the SVG endpoint, and the README snippet.
 
-If `gh issue create` works in this repo (the org has the issue tracker
-enabled and the current `gh` auth has scope for it), file the issues. If
-not, append a checklist to the PRD at the bottom under "## Issues" and
-proceed. Either way, the list is the source of truth for the next step.
+If `gh issue create` works for the relevant repo (`agentlint/agentlint`
+public; `agentlint/agentlint.sh` private), file them. Otherwise, append
+the checklist to the PRD under `## Issues` and continue. Either way, the
+list is the source of truth for step 5.
 
-### 5. TDD EXECUTION via tdd
+For each issue, record:
 
-For each issue, in order, invoke the `tdd` skill. Constraints specific to
-this repo:
+- **Title** — Conventional Commits prefix recommended
+  (`feat(web):`, `feat(cli):`, `fix(...)`, `docs(...)`)
+- **Repo** — CLI or web (or both, with the producer-first split)
+- **Independence** — what other issues, if any, it blocks or is blocked by
+- **Definition of done** — the one thing a reviewer can verify
 
-- **CLI repo (`packages/cli`, `packages/core`, `tools/leaderboard`).**
-  Tests in `*.test.ts` next to the source. Runner: `vitest`. Coverage gate:
-  80% on changed files. New rules go through the rules contract — they
-  catch and return a `fail` Result, never throw.
-- **Web repo (`agentlint.sh`).** Unit and integration tests in `*.test.ts`
-  next to the source, runner `vitest`. Critical user flows (login,
-  dashboard load, `--push` ingest end-to-end) get a Playwright spec under
-  `e2e/`. Coverage gate: 80% on changed files. Webhook handlers must have
-  signature-failure tests.
-- **Both repos.** Red → green → refactor → re-run. No commit until the
-  test that motivated the code passes.
+### 5. TDD EXECUTION
 
-When a slice spans both repos, ship the producer side first (server route
-or CLI flag) with its own tests passing, then the consumer side (UI,
+For each issue, run TDD: red → green → refactor → re-run. Constraints:
+
+- **CLI repo.** Tests in `*.test.ts` next to source. Runner `vitest`.
+  Coverage gate 80% on changed files. Rules contract: rules never
+  throw — they catch and return a `fail` Result.
+- **Web repo (`agentlint-sh`).** Unit + integration tests in
+  `*.test.ts` next to source, runner `vitest`. Critical flows (login,
+  dashboard load, ingest end-to-end) get a Playwright spec under
+  `e2e/` if and only if that critical flow is touched. Coverage gate
+  80% on changed files. Webhook handlers must have signature-failure
+  tests. Auth handlers must have unauthenticated-request tests.
+- **Both repos.** No commit until the motivating test passes.
+
+When a slice spans both repos: ship the **producer side first** (server
+route or CLI flag) with its own tests passing, then the consumer side (UI,
 follow-up CLI behavior). Keep PRs small.
+
+#### Parallel dispatch (when issues are independent)
+
+Two issues are independent when they touch different files, different
+schema namespaces, and different deployment surfaces. When that's true,
+dispatch them in parallel via the `Agent` tool, each in its own worktree:
+
+- Web work → `general-purpose` (or `typescript-reviewer` for review-only)
+- CLI work → `general-purpose` with an explicit reminder to keep
+  `packages/core/` IO-free
+- TDD enforcement → `tdd-guide`
+- Code review after a slice ships → `code-reviewer`. For auth, billing,
+  or user-input code → also `security-reviewer`.
+
+Each subagent gets:
+
+1. The PRD path
+2. Its assigned issue (title + DoD + files in/out of scope)
+3. Repo root path (CLI or web)
+4. Charter pointer (`docs/CHARTER.md`) so it knows the guardrails
+
+Subagents report back; you integrate; you close out. If unsure whether
+two issues are independent, **run them sequentially**. Sequential
+correctness beats parallel speed.
 
 ### 6. CLOSE-OUT
 
 In order:
 
-1. Update `docs/PROJECT_STATE.md`:
-   - Move the slice from **Pending** to **Done — recent** with a short
-     entry (3–5 bullets).
-   - Update the snapshot table if status fields changed (Stripe state,
-     repo visibility, deployment URLs, etc.).
-2. Append `docs/DECISIONS.md` if any non-obvious decision was made.
-3. Run the verifier:
-   - CLI repo: `pnpm run ci` (must pass) and `pnpm run agentlint .` (must
-     report 100/100).
-   - Web repo: `node node_modules/next/dist/bin/next build` (must succeed),
-     plus `pnpm test` and `pnpm exec playwright test` if e2e specs exist.
-4. Stage and commit per Conventional Commits. Examples:
-   - `feat(cli): add agentlint --push to upload reports`
-   - `feat(web): score badge SVG endpoint at /badge/:owner/:repo.svg`
-   - `feat(web): GitHub App webhook posts PR score-diff comments`
-   - `docs: ADR-0014 token scope for --push API tokens`
-5. Push. If the slice is in the web repo and CI is wired, wait for the
-   Vercel preview to come up and link it in the closing summary.
+1. **Update `docs/PROJECT_STATE.md`:**
+   - Move the slice from **Pending** to **Done — recent** with a 3–5
+     bullet entry.
+   - Update the snapshot table if any status field changed (test count,
+     CI status, ADR pointers, env vars, deployment URLs).
+2. **Append `docs/DECISIONS.md`** with a new ADR for any non-obvious
+   decision (anything a future contributor would ask "why?" about).
+3. **Verify both repos:**
+   - CLI repo: `pnpm run ci` (must pass) and `pnpm run agentlint .`
+     (must report 100/100).
+   - Web repo: `pnpm test`, build (`node_modules/next/dist/bin/next
+     build`), and `pnpm exec playwright test` if e2e specs were
+     touched or added.
+4. **Stage and commit** per Conventional Commits. Examples:
+   - `feat(cli): agentlint login subcommand (device-flow OAuth)`
+   - `feat(web): API route for CLI device-flow exchange`
+   - `feat(dashboard): redesigned project setup wizard`
+   - `docs: ADR-00XX device-flow CLI auth`
+5. **Push** to the relevant remote. If the slice is in the web repo and
+   the deploy workflow is wired, wait for the Vercel preview and link it
+   in the closing summary.
 
 ### 7. SUMMARY
 
 End every run with a 3-bullet summary to the human:
 
 ```
-SHIPPED: <slice title> — <one-line outcome>
-PENDING: <next slice in the P1 list>
-NEXT: <what `agentlint-feature-pipeline` will do on its next invocation>
+SHIPPED: <feature title> — <one-line outcome + PR/URL>
+PENDING: <next pending item or "nothing — propose next">
+NEXT: <what /agentlint-feature-pipeline will do on its next invocation>
 ```
 
 ## Charter constraints (do not violate without an ADR)
 
-These are sticky. Re-read [`CHARTER.md`](../../../docs/CHARTER.md) before
-shipping if you are unsure.
+Sticky. Re-read [`CHARTER.md`](../../../docs/CHARTER.md) when in doubt.
 
-1. **Score-of-100 invariant.** `pnpm run agentlint .` on the CLI repo must
-   still report 100/100 after the change. Either fix the regression in the
-   same PR or revert.
-2. **Public scoring API is sacred.** Rule weights and `CATEGORY_MAX` never
-   change without an ADR superseding [ADR-0003](../../../docs/DECISIONS.md).
-3. **Local-first.** The CLI never phones home in the default code path. The
-   `--push` opt-in flag is the only sanctioned network call from the CLI,
-   and even then only when the user passes it.
+1. **Score-of-100 invariant.** `pnpm run agentlint .` on the CLI repo
+   must still report 100/100 after the change.
+2. **Public scoring API is sacred.** Rule weights and `CATEGORY_MAX`
+   never change without an ADR superseding [ADR-0003](../../../docs/DECISIONS.md).
+3. **Local-first.** The CLI never phones home in the default code path.
+   Opt-in network calls (today: `--push`, `--public`, OIDC fetch when
+   CI detected, future: `agentlint login` device-flow) all require an
+   explicit user action or env signal — never default-on.
 4. **Rules never throw.** They catch and return a `fail` Result.
-5. **Conventional Commits.** Always. The husky hook in
-   `.husky/prepare-commit-msg` already appends the agent co-authorship
-   trailer — do not skip hooks.
-6. **Disagree-and-commit is allowed.** If you think a direction encoded in
-   PROJECT_STATE is wrong, log the dissent as a new ADR, propose the
-   alternative, then ship the chosen path without sandbagging it.
-
-## Multi-agent dispatch (when slices are independent)
-
-If two pending slices are genuinely independent — different files, different
-schema namespaces, different deployment surfaces — you may dispatch them in
-parallel. Use the `Agent` tool with subagent types and clean contexts:
-
-- Web work → `general-purpose` (or `typescript-reviewer` for review-only
-  passes).
-- CLI work → `general-purpose` with explicit instruction to keep `core/`
-  IO-free.
-- TDD enforcement → `tdd-guide`.
-- Code review after a slice ships → `code-reviewer` and, for any code that
-  touches auth/billing/user input, `security-reviewer`.
-
-Each subagent gets the slice's PRD path and its issue list. They report
-back, you integrate, you close out.
-
-If unsure whether two slices are independent, run them sequentially. Sequential
-correctness beats parallel speed.
+5. **Conventional Commits, always.** The husky hook in
+   `.husky/prepare-commit-msg` appends the agent co-author trailer —
+   do not skip hooks.
+6. **Disagree-and-commit is allowed.** Log dissent as a new ADR, ship
+   the chosen path without sandbagging it.
+7. **Branch policy** (ADR-0021). CLI repo: `feat/*` → PR → `main`. Web
+   repo: `feat/*` → PR → `dev` → PR → `main`. Never push directly to
+   `main` on either repo.
 
 ## When this skill should *not* run
 
 - The user is asking a question, not asking for forward progress.
-- The user has given a specific instruction that bypasses the pipeline
-  ("just rename this file", "fix this typo"). Do the specific thing.
-- A charter-level boundary is being hit and the human has not weighed in.
-- `pnpm run ci` is currently red on the CLI repo's `main` — fix that first
-  with a `fix(...)` commit before starting a new slice.
+- The user gave a specific narrow instruction ("rename this file",
+  "fix this typo"). Do the specific thing.
+- A charter-level boundary is being hit and the human has not weighed
+  in. Escalate.
+- `pnpm run ci` is currently red on the CLI repo's `main` — fix that
+  first with a `fix(...)` commit before starting a new feature.
 
-## Re-enabling Pro and Team
+## Repo map (quick reference)
 
-When the P1 slices are done — `--push` ingest, run history, score badge,
-PR comments, org dashboard, policy thresholds — the next pipeline run should
-do exactly two things:
-
-1. Revert the UI portion of [ADR-0012](../../../docs/DECISIONS.md):
-   restore the `Subscribe` CTAs in `app/pricing/page.tsx`, restore the
-   `/dashboard` upgrade CTA, remove the `Coming soon` badges and status
-   banner.
-2. Append a new ADR superseding ADR-0012, dated, with the receipts: which
-   features shipped, the smoke-test runbook for the live-mode flip, and
-   the rollback commit.
-
-Do not flip Stripe to live mode in the same PR. That is a human-signed
-action per the charter.
+| Concern | Location |
+|---|---|
+| CLI source | `~/Code/agentlint/packages/cli/src/` |
+| CLI tests | `*.test.ts` next to source; `vitest` |
+| Score calc / types | `~/Code/agentlint/packages/core/src/` |
+| Leaderboard tool | `~/Code/agentlint/tools/leaderboard/src/` |
+| Web app | `~/Code/agentlint-sh/app/` and `~/Code/agentlint-sh/lib/` |
+| Web schema | `~/Code/agentlint-sh/db/schema.ts` |
+| Web tests | `~/Code/agentlint-sh/tests/` and `*.test.ts` next to source |
+| PRDs | `~/Code/agentlint/docs/prds/` |
+| ADRs | `~/Code/agentlint/docs/DECISIONS.md` |
+| Project state | `~/Code/agentlint/docs/PROJECT_STATE.md` |
+| Playbook | `~/Code/agentlint/docs/PLAYBOOK.md` |
+| Charter | `~/Code/agentlint/docs/CHARTER.md` |

@@ -1010,3 +1010,96 @@ back where they came from instead of a generic `/dashboard`.
   the dashboard repo picker and for posting PR comments. A repo can
   ingest scores without ever installing the App; PR comments simply
   won't be posted in that case.
+
+## ADR-0023 — CLI device-flow OAuth (RFC 8628) for `agentlint login`
+
+**Date:** 2026-05-10.
+
+**Context.** v2.0.0 made the user copy a project token out of the
+dashboard and paste it into `AGENTLINT_TOKEN`. Every onboarding session
+since cutover has had at least one paste-error or "where do I put this"
+moment. The hosted product is meant to feel like a developer tool, not
+a config-file scavenger hunt.
+
+**Decision.** `agentlint login` runs the IETF RFC 8628 OAuth 2.0 Device
+Authorization Grant against `agentlint.sh`. The CLI calls
+`POST /api/cli/auth/device`, gets a short `user_code` (formatted
+`XXXX-XXXX`) and a long `device_code`, prints the verification URL,
+polls `POST /api/cli/auth/poll` every `interval` seconds, and on
+approval receives a project token (`agl_proj_…`) which it writes to
+`~/.config/agentlint/token` with mode `0600`.
+
+The user's flow on the web side is a new `/cli/auth` page that
+auto-fills the `user_code` from the query string, asks them to pick an
+org, and posts approval to `POST /api/cli/auth/approve` which mints
+the token server-side.
+
+**Alternatives considered.**
+
+- **Custom setup-link flow** (CLI generates a nonce, opens browser,
+  user signs in and confirms, CLI polls a setup endpoint). Same UX
+  but a private protocol shape — no off-the-shelf documentation, no
+  spec test fixtures, harder for third-party clients later.
+- **GitHub OAuth exchange directly.** CLI opens browser to GitHub's
+  OAuth, gets a code back, exchanges it server-side for a project
+  token. Adds a third-party hop and surfaces the wrong identity model
+  (GitHub user, not agentlint org). Rejected.
+- **Personal-access-token paste** (status quo). Works but loses the
+  whole point of this slice.
+
+**Consequences.**
+
+- New table `cli_auth_grant` lives at the web layer (Drizzle in
+  `db/schema.ts`). Migration `db/migrations/0001_cli_auth_grant.sql`.
+- Token resolver in the CLI now reads from `~/.config/agentlint/token`
+  as a fallback after `--token` flag and `AGENTLINT_TOKEN` env.
+- Charter §3 (local-first, no telemetry) is honored: `agentlint
+  login` is an explicit opt-in subcommand. The default `agentlint .`
+  code path still does not phone home.
+- Grant TTL is 10 minutes. Once-redeemable. `token_plaintext` is
+  cleared on first successful poll.
+- Rate limits: 10/min/IP on `/device`, 30/min/device_code on `/poll`,
+  5/min/user on `/approve`.
+
+**Out of scope (follow-up).**
+
+- Auto-uploading `AGENTLINT_TOKEN` as a GitHub Actions repo secret via
+  the App API requires the `secrets:write` permission, which would
+  force every existing install to re-consent. Tracked in
+  `docs/prds/cli-secret-autoupload.md` (TBD).
+
+## ADR-0024 — `agentlint-feature-pipeline` skill rewritten generic
+
+**Date:** 2026-05-10.
+
+**Context.** The original `.claude/skills/agentlint-feature-pipeline/`
+skill was hard-coded to "pick the next unfinished P1 vertical slice
+from `docs/PROJECT_STATE.md`." That made sense while items 4–9 were the
+queue; it's brittle now that the P1 list is mostly done and new
+features come from user requests that don't fit any pre-existing slot.
+
+**Decision.** The skill now accepts two input modes:
+
+- **Mode A — explicit feature.** The user supplied a feature
+  description in the prompt; the skill restates it, then runs the
+  pipeline against it.
+- **Mode B — no feature specified.** The skill opens
+  `docs/PROJECT_STATE.md` and picks the lowest-numbered unfinished
+  item across P0, P1 (paid-tier track), P1 (leaderboard track), P1
+  (hygiene), then P2.
+
+The pipeline order is unchanged: `RESTATE → grill-me → to-prd →
+to-issues → tdd → close-out → summary`. Charter constraints are
+unchanged.
+
+**Consequences.**
+
+- Any agent running `/agentlint-feature-pipeline` with a custom feature
+  description now follows the same shape and produces the same
+  artefacts (PRD in `docs/prds/`, ADR if needed, issues, TDD
+  commits, PROJECT_STATE update).
+- Parallel sub-agent dispatch is now a first-class step in the skill,
+  with explicit rules for when issues are independent and when to
+  fall back to sequential.
+- The skill is also clearer about the repo split — every PRD lives in
+  the CLI repo regardless of where the code lands.

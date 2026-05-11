@@ -1103,3 +1103,66 @@ unchanged.
   fall back to sequential.
 - The skill is also clearer about the repo split — every PRD lives in
   the CLI repo regardless of where the code lands.
+
+## ADR-0025 — Auto-upload `AGENTLINT_TOKEN` as a repo Actions secret
+
+**Date:** 2026-05-10.
+
+**Context.** `dashboard-ux-cli-autoconnect` (ADR-0023) removed the
+manual paste of the token into the CLI environment. But every user
+still had to open
+`https://github.com/<owner>/<repo>/settings/secrets/actions/new` and
+paste the token into a GitHub Actions repo secret named
+`AGENTLINT_TOKEN`. The agentlint GitHub App is already installed on
+those repos for PR-comment posting — it has every credential it
+needs to push the secret programmatically.
+
+**Decision.** Add a server route `POST /api/projects/:id/install-secret`
+that mints a fresh project token, encrypts it with libsodium
+sealed-box against the repo's Actions public key, and PUTs to
+`/repos/:owner/:repo/actions/secrets/AGENTLINT_TOKEN` using the App's
+installation token. The CLI calls this route during `agentlint init`
+(default on, `--no-install-secret` opts out) and via the new
+`agentlint install-secret` subcommand.
+
+**Alternatives considered.**
+
+- **Pass-through of the local token.** The route accepts the user's
+  existing token and writes it back as the secret. Simpler, but ties
+  the CI lifecycle to the local-dev token — `agentlint logout` would
+  silently break CI. Rejected.
+- **Encrypt on the client.** CLI fetches the public key and encrypts
+  locally. Adds libsodium to the CLI bundle (~30KB) and requires a
+  GitHub API call from the CLI, which crosses the local-first
+  boundary harder than the route call does. Rejected — server-side
+  encryption is also where the App's install token lives.
+- **A separate `project_secret_installation` table.** Cleaner audit
+  trail but no extra requirements yet justify it. Use two columns on
+  `project` (`actions_secret_installed_at`, `actions_secret_last_error`).
+
+**Consequences.**
+
+- **The agentlint GitHub Apps need a permission bump:** add
+  `Secrets: Read & write` on Actions to both `agentlint-ci` (prod App
+  ID 3668343) and `agentlint-ci-preview` (preview App ID 3670537).
+  This is a manual step on each App's Settings page in GitHub UI;
+  existing installations will see a re-consent prompt on their next
+  App-aware interaction. Documented in PROJECT_STATE under "Pending —
+  human action."
+- Migration `db/migrations/0002_project_actions_secret.sql` is
+  additive and reversible.
+- The dashboard project page gains a "GitHub Actions secret" panel
+  showing the install state.
+- The CLI is still local-first: the new network call only happens on
+  subcommand invocation or as the closing step of `agentlint init`,
+  both of which are explicit user actions.
+- A fresh token is minted at install-time, not passed through. The
+  user's local token file (`~/.config/agentlint/token`) remains a
+  separate credential. Effect: revoking either does not affect the
+  other.
+
+**Out of scope (followups).**
+
+- Org-level Actions secrets. Would need different permissions and a
+  different UI.
+- Other CI providers (GitLab, CircleCI). No demand yet.

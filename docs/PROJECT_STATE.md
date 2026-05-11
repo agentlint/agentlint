@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **dashboard UX + CLI auto-connect shipped.** `agentlint login` device-flow OAuth (RFC 8628) replaces the manual token-paste step; `agentlint init` now writes `.github/workflows/agentlint.yml` alongside `.agentlint.json`; dashboard org page gained four headline metric cards (7d avg score, runs this week, pass-rate, top failing rule); `/cli/auth` browser approval page lands (ADR-0023). `agentlint-feature-pipeline` skill rewritten generic — accepts any feature description, falls back to PROJECT_STATE pick when none given (ADR-0024). v2 shipped + post-ship iterations are still the foundation underneath.
+**Last updated:** 2026-05-10 by Claude Code — **CLI secret auto-upload shipped + dashboard UX + CLI auto-connect.** Two consecutive autonomous /agentlint-feature-pipeline runs landed: (1) device-flow `agentlint login`, `init` writes Actions workflow, dashboard metric cards (ADR-0023); (2) `agentlint install-secret` subcommand + `init` integration that PUTs `AGENTLINT_TOKEN` to the repo via the App installation token using libsodium sealed-box (ADR-0025). End-to-end paste-free onboarding once the GitHub App permission bump (manual) is applied. `agentlint-feature-pipeline` skill rewritten generic (ADR-0024).
 
 ## Snapshot
 
@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | `feat/dashboard-ux-cli-autoconnect` open at [PR #10](https://github.com/agentlint/agentlint.sh/pull/10) against `dev` |
-| Latest commit (CLI) | [`#4` squashed to `main`](https://github.com/agentlint/agentlint/pull/4) — `feat(cli): login subcommand + workflow autowrite` |
+| Latest commit (web) | [PR #11](https://github.com/agentlint/agentlint.sh/pull/11) `feat: CLI secret auto-upload (web slice)` against `dev`. Previous: PR #10 merged. |
+| Latest commit (CLI) | [`#6` squashed to `main`](https://github.com/agentlint/agentlint/pull/6) — `feat(cli): install-secret subcommand + init wiring`. Previous: #4 (login), #5 (docs). |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **161 passing** (+38 from CLI #4). Web repo: **117 passing** (+67 from web #10). |
+| Tests | CLI repo: **177 passing** (+16 from CLI #6). Web repo: **142 passing** (+25 from web #11). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,36 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### CLI secret auto-upload session (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
+
+Follow-up to the dashboard-UX session. Two parallel sub-agents
+executed against `docs/prds/cli-secret-autoupload.md`.
+
+- **CLI [PR #6](https://github.com/agentlint/agentlint/pull/6) — merged.**
+  - New `agentlint install-secret` subcommand: POSTs to
+    `/api/projects/:id/install-secret` with the project token; server
+    encrypts a freshly minted token and PUTs it to the repo's
+    Actions secrets.
+  - `agentlint init` now calls `install-secret` by default after
+    writing the workflow file; `--no-install-secret` opts out.
+  - +16 tests (161 → 177). Self-audit 100/100.
+- **Web [PR #11](https://github.com/agentlint/agentlint.sh/pull/11) —
+  open against `dev`.**
+  - `lib/github-app/secrets.ts` helper: libsodium sealed-box →
+    GitHub Actions secrets API.
+  - `POST /api/projects/:id/install-secret` route (session OR
+    project-token auth; rate-limit 5/min/project).
+  - Schema columns `project.actions_secret_installed_at`,
+    `project.actions_secret_last_error` (migration
+    `0002_project_actions_secret.sql`).
+  - Project dashboard page gains a "GitHub Actions secret" panel
+    with four render states (installed, ready, app-not-installed,
+    last-error).
+  - +25 tests (117 → 142).
+- **ADR-0025** logs the design decisions: fresh token per install
+  (not pass-through), server-side encryption (not CLI-side), two
+  columns on `project` (not a separate table).
 
 ### Dashboard UX + CLI auto-connect session (2026-05-10, evening — autonomous /agentlint-feature-pipeline run)
 

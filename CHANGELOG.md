@@ -5,6 +5,13 @@ All notable changes to agentlint are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-10
+
+- `agentlint login` subcommand (RFC 8628 device flow against agentlint.sh).
+- `agentlint logout` clears local token file.
+- `agentlint init` writes `.github/workflows/agentlint.yml` (OIDC-only, no repo secret required for CI).
+- Token resolver: `--token` flag → `AGENTLINT_TOKEN` env → `~/.config/agentlint/token` file fallback.
+
 ## [2.0.0] - 2026-05-10
 
 The web app at <https://agentlint.sh> moved to an **org-centric** model

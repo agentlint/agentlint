@@ -99,31 +99,29 @@ case "$REPO" in
 esac
 
 # --------------------------------------------------------------------- prompt
-USER_PROMPT="$(cat <<EOF
-You are running the agentlint overnight loop for slice: ${SLUG}
+# Assemble prompt into a temp file. Avoids nested heredoc inside $()
+# which breaks on apostrophes / special chars in the brief.
+PROMPT_FILE="$(mktemp -t agentlint-loop-prompt.XXXXXX)"
+trap 'rm -f "$PROMPT_FILE"' EXIT
 
-## Worktree
-
-You are in: ${START_CWD}
-$( [[ "$REPO" == "both" ]] && echo "Web repo worktree: ${WEB_WT}" )
-
-Branch: ${BRANCH}
-
-## Brief
-
-$(cat "$ABS_BRIEF")
-
-## Pipeline
-
-Run the agentlint-feature-pipeline skill on this slice. Mode A —
-feature is explicitly described above. Do NOT pick from
-PROJECT_STATE; do what's in this brief. When the skill says
-"close-out", actually open and merge the PR per the guardrails.
-
-End your run with the three-bullet SHIPPED/PENDING/NEXT summary as
-the final lines of output.
-EOF
-)"
+{
+  printf 'You are running the agentlint overnight loop for slice: %s\n\n' "$SLUG"
+  printf '## Worktree\n\n'
+  printf 'You are in: %s\n' "$START_CWD"
+  if [[ "$REPO" == "both" ]]; then
+    printf 'Web repo worktree: %s\n' "$WEB_WT"
+  fi
+  printf '\nBranch: %s\n\n' "$BRANCH"
+  printf '## Brief\n\n'
+  cat "$ABS_BRIEF"
+  printf '\n\n## Pipeline\n\n'
+  printf 'Run the agentlint-feature-pipeline skill on this slice. Mode A:\n'
+  printf 'feature is explicitly described above. Do NOT pick from\n'
+  printf 'PROJECT_STATE; do what is in this brief. When the skill says\n'
+  printf 'close-out, actually open and merge the PR per the guardrails.\n\n'
+  printf 'End your run with the three-bullet SHIPPED/PENDING/NEXT summary as\n'
+  printf 'the final lines of output.\n'
+} > "$PROMPT_FILE"
 
 # --------------------------------------------------------------------- invoke
 echo "dispatch: $SLUG starting at $(date -u +%H:%M:%SZ) in $START_CWD" | tee -a "$LOG"
@@ -152,7 +150,7 @@ while [[ $attempt -le $max_attempts ]]; do
       --dangerously-skip-permissions \
       --append-system-prompt "$(cat "$GUARDRAILS")" \
       --add-dir "$CLI_REPO" "$WEB_REPO" "$CLI_WT" "$WEB_WT" \
-      -p "$USER_PROMPT"
+      -p "$(cat "$PROMPT_FILE")"
   ) >> "$LOG" 2>&1
   rc=$?
   set -e

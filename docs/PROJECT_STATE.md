@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **v2 shipped + post-ship iterations.** Better-Auth org plugin live; org→project→run; project-scoped tokens (`agl_proj_…`); CLI v2.0.0 published; server-side scans removed (ADR-0019). After shipping: bulletproof auth hook (PR #3), dev branch deploy trigger (PR #4), Vercel-style GitHub repo picker (PR #6), env-aware install URL (PR #8), post-install bounce-back (PR #9), per-env GitHub Apps (ADR-0022).
+**Last updated:** 2026-05-10 by Claude Code — **dashboard UX + CLI auto-connect shipped.** `agentlint login` device-flow OAuth (RFC 8628) replaces the manual token-paste step; `agentlint init` now writes `.github/workflows/agentlint.yml` alongside `.agentlint.json`; dashboard org page gained four headline metric cards (7d avg score, runs this week, pass-rate, top failing rule); `/cli/auth` browser approval page lands (ADR-0023). `agentlint-feature-pipeline` skill rewritten generic — accepts any feature description, falls back to PROJECT_STATE pick when none given (ADR-0024). v2 shipped + post-ship iterations are still the foundation underneath.
 
 ## Snapshot
 
@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | `07c34ee` — `fix(github): post-install bounce-back to project page (#9)` on `dev` |
-| Latest commit (CLI) | `fd11902` — `feat(cli)!: v2.0.0 — project tokens, init command, OIDC provenance (#2)` on `main` |
+| Latest commit (web) | `feat/dashboard-ux-cli-autoconnect` open at [PR #10](https://github.com/agentlint/agentlint.sh/pull/10) against `dev` |
+| Latest commit (CLI) | [`#4` squashed to `main`](https://github.com/agentlint/agentlint/pull/4) — `feat(cli): login subcommand + workflow autowrite` |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **123 passing** across 9 files. Web repo: **50 passing** across 7 files. |
+| Tests | CLI repo: **161 passing** (+38 from CLI #4). Web repo: **117 passing** (+67 from web #10). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,55 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Dashboard UX + CLI auto-connect session (2026-05-10, evening — autonomous /agentlint-feature-pipeline run)
+
+Two parallel sub-agents executed in clean contexts against a single
+PRD (`docs/prds/dashboard-ux-cli-autoconnect.md`). The skill itself was
+rewritten in the same session to be feature-generic (ADR-0024) so the
+same pipeline shape now works for any feature, not only the P1 paid-tier
+slices.
+
+- **CLI [PR #4](https://github.com/agentlint/agentlint/pull/4) — merged.**
+  - `agentlint login` subcommand: RFC 8628 device-flow OAuth against
+    `agentlint.sh`. Token written to `~/.config/agentlint/token` with
+    mode `0600`. Read refuses if mode wider.
+  - `agentlint logout` clears the token file.
+  - `agentlint init` extends to (a) prompt-to-login when no token is
+    resolvable and (b) write `.github/workflows/agentlint.yml` by
+    default — `--no-workflow` skips, `--force-workflow` overwrites.
+  - Token resolver precedence is now `--token` flag → `AGENTLINT_TOKEN`
+    env → `~/.config/agentlint/token` file.
+  - +31 tests (130 → 161). Self-audit still 100/100.
+- **Web [PR #10](https://github.com/agentlint/agentlint.sh/pull/10) —
+  open against `dev`, deploy in progress.**
+  - `cli_auth_grant` table (Drizzle + raw SQL migration
+    `0001_cli_auth_grant.sql`).
+  - 4 API routes: `POST /api/cli/auth/device`,
+    `POST /api/cli/auth/poll`, `POST /api/cli/auth/approve`,
+    `POST /api/cli/auth/deny`. Rate-limited per the PRD.
+  - `/cli/auth` browser approval page (server component + client
+    auth-form) with org picker, anonymous redirect to `/login`, and
+    Authorize/Deny CTAs.
+  - 4 dashboard metric cards on `/dashboard/orgs/[slug]`: 7d avg
+    score, runs this week, 30d pass-rate, 30d top failing rule.
+    Empty-state copy.
+  - +67 tests (50 → 117).
+- **Skill rewrite** (ADR-0024). `.claude/skills/agentlint-feature-pipeline/SKILL.md`
+  now accepts both an explicit feature description (Mode A) and a
+  fallback "pick the next pending item from PROJECT_STATE" (Mode B).
+  Pipeline order is unchanged: RESTATE → grill-me → to-prd →
+  to-issues → tdd → close-out → summary. Parallel sub-agent dispatch
+  is now a first-class step with explicit independence rules.
+- **PRD** at `docs/prds/dashboard-ux-cli-autoconnect.md` captures the
+  scope, schema, API, CLI, UI, security, rollback, and the five
+  vertical issues that were dispatched in parallel.
+- **ADRs.** ADR-0023 (device-flow OAuth choice over custom setup-link
+  flow). ADR-0024 (skill rewritten generic).
+- **Deferred to follow-up:** auto-uploading `AGENTLINT_TOKEN` as a
+  GitHub Actions repo secret via the App API. Tracked as a future
+  PRD `cli-secret-autoupload.md` — requires the `secrets:write`
+  permission, which forces every existing install to re-consent.
 
 ### Post-v2 iteration session (2026-05-10, evening — UX + ops fixes)
 

@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **Server-side scan on push live in prod.** Vercel-style: install the agentlint GitHub App → `git push` → row appears. No workflow file, no repo secret, no App permission bump beyond the existing set. Path: `POST /api/github/webhook` → push event → shallow clone via App installation token (30s + 200MB caps) → in-process agentlint scan → row inserted with `source=server, provenance=server-scanned` → PR comment on open-PR branches. CLI v2.1.0 published to npm (`agentlint login`, `agentlint logout`, OIDC-only generated workflow). OIDC-only `/api/runs` live at agentlint.sh. Neon migrations applied dev + prod (`cli_auth_grant` table). Branch cleanup: only `main` + `dev` on web; `main` on CLI. ADR train: 0023 (device-flow), 0024 (skill rewritten generic), 0025 (install-secret → superseded by 0026), 0026 (OIDC-only), 0027 (server-side scan on push → supersedes ADR-0019).
+**Last updated:** 2026-05-10 by Claude Code — **Dashboard UX overhaul shipped.** Global nav with breadcrumbs + org switcher on every `/dashboard/*` page. Site header detects session and swaps "Sign in" → "Open dashboard"; `/login` redirects signed-in users. "Run scan now" button on project page + auto-scan when a project is first created. `GET /api/projects/:id/runs` exposes filter/sort/pagination. Run detail page renders the full per-rule report from `run.report_json`. Project page gains a score-over-time line chart and a top-failing-rules bar chart — both hand-rolled server-rendered SVG, no chart-library deps. CLI completely untouched (charter §3). 66 new tests on web (170 → 236). ADR-0028 logs the design. Foundation underneath: server-side scan on push (ADR-0027, supersedes 0019), OIDC-only `/api/runs` (ADR-0026), CLI v2.1.0 with device-flow login + OIDC-only generated workflow (ADRs 0023/0024).
 
 ## Snapshot
 
@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #14](https://github.com/agentlint/agentlint.sh/pull/14) `feat: server-side scan on push` against `dev`. Previous: #13 (dev → main release, merged); #12 (OIDC-only, merged); #11/#10 ancestors. |
+| Latest commit (web) | [PR #16](https://github.com/agentlint/agentlint.sh/pull/16) `feat: dashboard UX overhaul` against `dev`. Previous: #15 (dev → main release of server-side scan, merged); #14 (server-side scan, merged); #13 (OIDC-only release, merged). |
 | Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **170 passing** (net +25 from web #14 — server-scan runner, push-webhook handler, source pill, copy). |
+| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **236 passing** (net +66 from web #16 — dashboard UX overhaul). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,38 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Dashboard UX overhaul (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
+
+Single web sub-agent landed six sequential commits on
+`feat/dashboard-ux-overhaul`. PR #16 against `dev`.
+
+- **Web [PR #16](https://github.com/agentlint/agentlint.sh/pull/16)
+  — six commits, +66 tests.**
+  - `<SiteHeader />` is now session-aware: signed-in users see
+    "Open dashboard" instead of "Sign in"; clicking "Sign in"
+    while signed-in no longer loops through `/login`.
+  - `<DashboardNav />` renders on every `/dashboard/*` page —
+    breadcrumbs (`org / project`), org switcher when the user has
+    >1 org, and an account menu with email + Sign out.
+  - `POST /api/projects/:id/scan-now` triggers a server-side scan
+    on demand from the dashboard (5/min/project). Returns 202 +
+    `runId`. Auto-scan also fires on project creation when the
+    App is installed.
+  - `GET /api/projects/:id/runs?branch=&source=&from=&to=&sort=&limit=&offset=`
+    exposes filters, sort, and pagination over the runs list.
+  - `/dashboard/orgs/[slug]/projects/[projectId]/runs/[runId]`
+    renders the full per-rule report from `run.report_json`,
+    grouped by category, with collapsible messages.
+  - Project page gains a "Run scan now" button, a 220×60
+    server-rendered SVG score-over-time line chart, a
+    server-rendered SVG top-failing-rules bar chart, the
+    GET-form filter UI, and runs-table-row drill-down links.
+- **CLI untouched.** Charter §3 honored.
+- **No schema change.** All UX renders existing columns.
+- **No new chart library.** All SVG hand-rolled, same pattern as
+  the badge endpoint and the existing sparkline.
+- **ADR-0028** logs the design + alternatives.
 
 ### Server-side scan on push (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
 

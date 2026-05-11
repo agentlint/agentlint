@@ -14,15 +14,15 @@ describe("workflowYaml", () => {
     expect(workflowYaml()).toContain("npx -y @agentlinthq/cli@latest --push");
   });
 
-  it("interpolates AGENTLINT_TOKEN as a GitHub Actions secret", () => {
-    // Note: we deliberately compare against a literal escaped form so the
-    // test file itself does not contain a real GitHub Actions ${{ ... }}
-    // interpolation that some toolchains rewrite.
-    const secretRef = [
-      "AGENTLINT_TOKEN: $",
-      "{{ secrets.AGENTLINT_TOKEN }}",
-    ].join("");
-    expect(workflowYaml()).toContain(secretRef);
+  it("does not interpolate any GitHub Actions secret (OIDC-only)", () => {
+    // CI auth is OIDC-only (ADR-0026). The workflow must not reference
+    // any `secrets.*` value — the runner authenticates against /api/runs
+    // using the OIDC JWT requested via `id-token: write` instead.
+    expect(workflowYaml()).not.toContain("secrets.");
+  });
+
+  it("requests the OIDC id-token permission required by /api/runs", () => {
+    expect(workflowYaml()).toContain("id-token: write");
   });
 
   it("matches the snapshot", () => {
@@ -45,8 +45,6 @@ describe("workflowYaml", () => {
               with:
                 node-version: 20
             - run: npx -y @agentlinthq/cli@latest --push
-              env:
-                AGENTLINT_TOKEN: \${{ secrets.AGENTLINT_TOKEN }}
       "
     `);
   });

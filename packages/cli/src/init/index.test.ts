@@ -516,12 +516,10 @@ describe("runInit", () => {
 });
 
 describe("githubActionsSnippet", () => {
-  it("includes id-token: write and AGENTLINT_TOKEN secret", () => {
+  it("includes id-token: write and no AGENTLINT_TOKEN secret (OIDC-only)", () => {
     const snippet = githubActionsSnippet();
     expect(snippet).toContain("id-token: write");
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions interpolation syntax, not a JS template literal.
-    const secretRef = "AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}";
-    expect(snippet).toContain(secretRef);
+    expect(snippet).not.toContain("secrets.");
     expect(snippet).toContain("npx @agentlinthq/cli --push");
   });
 });

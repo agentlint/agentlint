@@ -307,9 +307,10 @@ export async function runInit(
   // config + workflow. The user can re-run `agentlint install-secret` later.
   const installed = await maybeRunInstallSecret(flags, deps);
 
-  // Fall back to the manual hint when install-secret didn't actually set
-  // the secret (skipped, failed, app not installed, etc.).
-  if (!installed) {
+  // Only print the manual secret-paste hint when the user opted out of the
+  // generated workflow. In the default path, CI authenticates via OIDC and
+  // never needs `AGENTLINT_TOKEN` (ADR-0026 supersedes ADR-0025).
+  if (!installed && flags.noWorkflow) {
     deps.log("");
     deps.log("Next: store your token as the AGENTLINT_TOKEN repo secret:");
     deps.log(
@@ -409,6 +410,10 @@ async function maybeWriteWorkflow(
 
 /**
  * Suggested GitHub Actions snippet. Exposed so tests can assert on it.
+ *
+ * CI auth is OIDC-only (ADR-0026 supersedes ADR-0025): the `/api/runs`
+ * route accepts the GitHub Actions OIDC JWT alone, so no `AGENTLINT_TOKEN`
+ * secret is required in the runner environment.
  */
 export function githubActionsSnippet(): string {
   return [
@@ -421,8 +426,5 @@ export function githubActionsSnippet(): string {
     "      with:",
     "        node-version: 20",
     "    - run: npx @agentlinthq/cli --push",
-    "      env:",
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions interpolation syntax, not a JS template literal.
-    "        AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}",
   ].join("\n");
 }

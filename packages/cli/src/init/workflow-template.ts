@@ -4,9 +4,9 @@
 // in the user's repo so CI scans run automatically on PRs and pushes.
 //
 // `id-token: write` is required for the OIDC-verified provenance flow
-// (ADR-0019). The `AGENTLINT_TOKEN` secret is a GitHub Actions
-// interpolation — the user still has to add it as a repo secret manually
-// (the cli-secret-autoupload PRD is a follow-up that removes that step).
+// (ADR-0019). CI auth is OIDC-only — no `AGENTLINT_TOKEN` secret is
+// needed in GitHub Actions because `/api/runs` accepts the OIDC JWT
+// alone (ADR-0026 supersedes ADR-0025).
 
 export const WORKFLOW_PATH = ".github/workflows/agentlint.yml";
 
@@ -36,7 +36,5 @@ jobs:
         with:
           node-version: 20
       - run: npx -y @agentlinthq/cli@latest --push
-        env:
-          AGENTLINT_TOKEN: \${{ secrets.AGENTLINT_TOKEN }}
 `;
 }

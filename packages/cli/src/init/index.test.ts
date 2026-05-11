@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { InstallSecretOutcome } from "../install-secret/index.js";
 import type { LoginOutcome } from "../login/index.js";
 import type { FetchFn } from "../push/project-lookup.js";
 import type { ExecFn } from "../push/repo-detect.js";
@@ -35,6 +36,9 @@ function makeDeps(overrides: Partial<InitDeps> = {}): {
     runLoginFn: async (): Promise<LoginOutcome> => ({
       kind: "network-error",
       reason: "no login fn in test",
+    }),
+    runInstallSecretFn: async (): Promise<InstallSecretOutcome> => ({
+      kind: "no-token",
     }),
     ...overrides,
   };
@@ -434,6 +438,80 @@ describe("runInit", () => {
       w.path.endsWith(".github/workflows/agentlint.yml"),
     );
     expect(workflow).toBeDefined();
+  });
+
+  it("calls runInstallSecret by default after writing the workflow", async () => {
+    let installCalled = 0;
+    const { deps, logs } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      runInstallSecretFn: async (_flags, depsArg) => {
+        installCalled += 1;
+        depsArg.log("✓ Set AGENTLINT_TOKEN secret on acme/widgets");
+        return {
+          kind: "installed",
+          repo: "acme/widgets",
+          installedAt: "2026-05-10T22:14:09.812Z",
+        };
+      },
+    });
+    const outcome = await runInit({}, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    expect(installCalled).toBe(1);
+    expect(logs.join("\n")).toContain(
+      "✓ Set AGENTLINT_TOKEN secret on acme/widgets",
+    );
+  });
+
+  it("does not call runInstallSecret when --no-install-secret is set", async () => {
+    let installCalled = 0;
+    const { deps } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      runInstallSecretFn: async () => {
+        installCalled += 1;
+        return { kind: "no-token" };
+      },
+    });
+    const outcome = await runInit({ noInstallSecret: true }, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    expect(installCalled).toBe(0);
+  });
+
+  it("does not call runInstallSecret when --no-workflow is set", async () => {
+    let installCalled = 0;
+    const { deps } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      runInstallSecretFn: async () => {
+        installCalled += 1;
+        return { kind: "no-token" };
+      },
+    });
+    const outcome = await runInit({ noWorkflow: true }, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    expect(installCalled).toBe(0);
+  });
+
+  it("still returns wrote-config when runInstallSecret fails (non-fatal)", async () => {
+    const { deps, logs } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      runInstallSecretFn: async (_flags, depsArg) => {
+        depsArg.log("GitHub App not installed on this repo. Install it at:");
+        return {
+          kind: "app-not-installed",
+          installUrl: "https://github.com/apps/agentlint-ci/installations/new",
+        };
+      },
+    });
+    const outcome = await runInit({}, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    expect(logs.join("\n")).toContain("GitHub App not installed");
   });
 });
 

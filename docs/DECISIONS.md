@@ -1355,3 +1355,94 @@ stay idle in `package.json`.
 - Per-org compute budget + warning before throttling.
 - Selective rule execution (e.g. skip documentation rules on every
   push, run them weekly).
+
+## ADR-0028 — Dashboard UX overhaul: nav, manual scan, run detail, filters, charts
+
+**Date:** 2026-05-10.
+
+**Context.** The hosted dashboard shipped functional but the UX was a
+mess: no global nav (browser back-button only), the marketing header
+always rendered "Sign in" even for signed-in users (clicking it
+looped them through `/login`), no way to trigger a scan on demand,
+no first-run scan on project creation, the runs list had zero
+filtering/sorting, and clicking a row did nothing — even though the
+per-rule report was already stored on `run.report_json`. Per-project
+charts were also missing.
+
+**Decision.** One large, additive PR fixes all seven gaps in six
+commits on `feat/dashboard-ux-overhaul`:
+
+1. `<SiteHeader />` becomes a server component that reads the
+   Better-Auth session and renders "Open dashboard" or "Sign in"
+   accordingly. `/login` redirects signed-in users to
+   `/dashboard`.
+2. `<DashboardNav />` renders on every `/dashboard/*` page —
+   breadcrumbs, org switcher (visible when the user has >1 org),
+   account menu with email + Sign out. Nav is rendered per-page
+   (passed context from the page's already-loaded params); Next.js
+   nested layouts would either double-render or force every page
+   to re-implement context propagation.
+3. `POST /api/projects/:id/scan-now` invokes the existing
+   `runServerScan` worker against the project's `prodBranch` HEAD.
+   Rate-limited 5/min/project. Returns 202 + `runId`. The same
+   helper (`lib/server-scan/schedule.ts`) is invoked from
+   `POST /api/projects` after a new project row commits — when the
+   App is installed, the first scan happens automatically without
+   waiting for the user to push.
+4. `GET /api/projects/:id/runs?branch=&source=&from=&to=&sort=&limit=&offset=`
+   — zod-validated filters and sort, 60/min/session rate limit.
+5. `/dashboard/orgs/[slug]/projects/[projectId]/runs/[runId]`
+   renders the full `report_json` grouped by category (Discoverability,
+   Buildability, Convention clarity, Documentation surface, Safety &
+   guardrails). Defensive against malformed shapes.
+6. Project page gains a "Run scan now" button (client component),
+   a 220×60 server-rendered SVG score-over-time line chart, a
+   server-rendered SVG top-failing-rules bar chart, the filter
+   GET-form, and runs-table row links to the new detail page.
+
+**Alternatives considered.**
+
+- **Nested Next.js layouts for the dashboard nav.** Cleaner in
+  theory but requires every nested route to thread params via
+  React context, and the org-switcher needs the current org slug
+  from the URL — easier and faster to pass per-page. Reconsider
+  when a global state store is needed.
+- **A charts library (`recharts`, `d3`, `victory`).** Each adds
+  ~30-100KB to the dashboard bundle; the existing sparkline
+  helper (`lib/dashboard/trend.ts`) and the badge SVG renderer
+  already prove hand-rolled SVG is sufficient. Reuse the
+  pattern; ship no new deps.
+- **Polling for new run rows after `scan-now`.** WebSockets or
+  SSE would feel snappier but introduces a long-lived connection
+  + reconnect logic. For this slice the user clicks → toast
+  appears → row appears on the next `router.refresh()` (within
+  ~5s). Good enough.
+- **Saved filters / shareable URLs.** The query-string-driven
+  filter form is already shareable by URL copy; saving on the
+  user record is a follow-up.
+
+**Consequences.**
+
+- 66 new tests on the web repo (170 → 236). All commits pass
+  `pnpm test` and `pnpm run typecheck`.
+- No schema migration. Everything renders from existing columns.
+- No new external dependency.
+- The push-webhook handler is **not** touched — `runServerScan`
+  is the shared work primitive; the new
+  `lib/server-scan/schedule.ts` helper extracts the scheduling
+  pattern so `scan-now` and project-create-auto-scan share it
+  without disturbing the webhook path.
+- The CLI is **not** touched at all (charter §3 honored).
+
+**Rollback.** Single `git revert` on the merge commit. No
+migration to roll back. The CLI is unaffected.
+
+**Out of scope (followups).**
+
+- Org-level dashboard rollups across all projects (PROJECT_STATE
+  item 8).
+- Policy thresholds — CLI exits non-zero when a project's
+  threshold is breached (PROJECT_STATE item 9).
+- Saved filters on the user record.
+- Real-time updates (polling/SSE/websockets).
+- Run-vs-run comparison view.

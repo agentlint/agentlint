@@ -5,8 +5,12 @@
   "description": "Internal tool: scan top GitHub repos and produce the agentlint leaderboard. Not published.",
   "type": "module",
   "main": "./dist/index.js",
+  "bin": {
+    "leaderboard-run": "./dist/run.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/run.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

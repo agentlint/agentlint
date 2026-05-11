@@ -7,6 +7,8 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
+**Last updated:** 2026-05-11 by Claude Code (overnight loop, `leaderboard-runner` slice) — **Leaderboard end-to-end shipped.** `tools/leaderboard/src/run.ts` orchestrates the four pipeline functions, writes `data/aggregated/<YYYY-MM-DD>.json` + `latest.json` + `out/leaderboard.html`. New weekly GitHub Action `.github/workflows/leaderboard.yml` runs Mondays 06:00 UTC, commits aggregated JSON to `main`, supports `workflow_dispatch` for ad-hoc runs. Web `app/leaderboard/page.tsx` rewritten as a server component (`revalidate = 86400`) that fetches the JSON from raw GitHub and renders the ranked table; new `app/leaderboard/methodology/page.tsx` holds methodology + anti-gaming. **12 new CLI tests** (orchestration paths) + **14 new web tests** (fetch + page render). First scan deferred to Monday cron (or manual `workflow_dispatch`). Launch post drafted at `docs/marketing/drafts/leaderboard-launch.md` — escalated, do not publish (charter §3.2). ADR-0033 logs the design.
+
 **Last updated:** 2026-05-10 by Claude Code — **Dashboard UX overhaul shipped.** Global nav with breadcrumbs + org switcher on every `/dashboard/*` page. Site header detects session and swaps "Sign in" → "Open dashboard"; `/login` redirects signed-in users. "Run scan now" button on project page + auto-scan when a project is first created. `GET /api/projects/:id/runs` exposes filter/sort/pagination. Run detail page renders the full per-rule report from `run.report_json`. Project page gains a score-over-time line chart and a top-failing-rules bar chart — both hand-rolled server-rendered SVG, no chart-library deps. CLI completely untouched (charter §3). 66 new tests on web (170 → 236). ADR-0028 logs the design. Foundation underneath: server-side scan on push (ADR-0027, supersedes 0019), OIDC-only `/api/runs` (ADR-0026), CLI v2.1.0 with device-flow login + OIDC-only generated workflow (ADRs 0023/0024).
 
 ## Snapshot
@@ -18,7 +20,7 @@
 | Latest commit (web) | [PR #22](https://github.com/agentlint/agentlint.sh/pull/22) `fix: scan runner uses GitHub tarball API (no git binary)` against `dev`. Previous: #21 (dev → main scan-worker fix release, merged); #20 (scan-worker fix, merged); #19 (self-heal release). |
 | Latest commit (CLI) | `feat(cli): programmatic runScan export on @agentlinthq/cli` (2026-05-11, autonomous loop — `cli-runscan-export` slice). Adds `packages/cli/src/api.ts` + 8 tests; package `main` now `./dist/api.js`; CLI binary unchanged. Prior: [`#10`](https://github.com/agentlint/agentlint/pull/10) `release(cli): v2.1.0`. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **172 passing** (+8 from `api.test.ts`). Web repo: **260 passing** (net +3 from web #22 — server-scan-runner tarball test rewrite). |
+| Tests | CLI repo: **184 passing** (+12 from `tools/leaderboard/src/run.test.ts`); core 3; full sweep 187. Web repo: **274 passing** (+14 from `leaderboard-fetch.test.ts` and `leaderboard-page.test.tsx`; 2 pre-existing failures inherited from `dev` in `run-detail-scan-failure.test.tsx` / `installation-reconcile.test.ts` / `webhook-installation.test.ts` are unrelated to this slice). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -34,10 +36,50 @@
 | Auth | ✅ better-auth + GitHub OAuth + Drizzle adapter; sessions persisted in Neon Postgres |
 | Database | ✅ Neon Postgres — separate prod and dev branches; schema migrated to both via `drizzle-kit push` |
 | Billing | ⚠️ **Paid tiers pulled from UI on 2026-05-10** (ADR-0012). Stripe routes now org-scoped (ADR-0018) — `customer.id` lives on `organization.stripeCustomerId`, all three routes accept `{orgSlug}` and gate on org admin role. Re-enabling = revert `app/pricing/page.tsx` AND wire an org picker. |
-| Leaderboard tool | ✅ pipeline functions complete (`fetch-repos`, `clone-and-scan`, `aggregate`, `render`). Bin entrypoint and first run still pending. |
+| Leaderboard tool | ✅ End-to-end. `tools/leaderboard/src/run.ts` orchestrator + `bin`/`start` + weekly cron Action (Mondays 06:00 UTC, also `workflow_dispatch`). Web `/leaderboard` reads `latest.json` from raw GitHub via `revalidate = 86400`. First scan pending Monday cron or manual dispatch. |
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Leaderboard runner + weekly cron + public page (2026-05-11, overnight loop — autonomous `leaderboard-runner` slice)
+
+The four pipeline functions (`fetchTopRepos`, `scanRepo`, `aggregate`,
+`renderJson`/`renderTable`) finally have an entrypoint and a destination.
+Charter §3.1 internal tooling; §3.2 (public launch post) escalated and
+drafted only.
+
+- **CLI** `tools/leaderboard/src/run.ts` — `runLeaderboard(opts)`
+  orchestrates fetch → scan → aggregate → write. Writes
+  `tools/leaderboard/data/aggregated/<YYYY-MM-DD>.json`, `latest.json`,
+  and `out/leaderboard.html`. `resolveEntryOptions` reads env
+  (`GITHUB_TOKEN`, `LEADERBOARD_LIMIT`, `LEADERBOARD_OUTDIR`,
+  `LEADERBOARD_HTMLDIR`, `AGENTLINT_CLI_PATH`, `AGENTLINT_CLI_VERSION`).
+  Bin entry + `pnpm --filter @agentlinthq/leaderboard run start`. Per-
+  repo failures recorded as rows with `score: null`; exit 1 only on
+  systemic failure (no successful scans, or fetch/write error).
+- **CLI** `.github/workflows/leaderboard.yml` — cron `0 6 * * 1`
+  (Mondays 06:00 UTC) and `workflow_dispatch` with `limit` input.
+  `permissions: contents: write` so the job can commit the JSON back
+  to `main`. Skips the commit if the diff is empty.
+- **CLI** `tools/leaderboard/data/aggregated/latest.json` — empty
+  placeholder so the web page renders an "empty" state before the
+  first cron run.
+- **Web** `app/leaderboard/page.tsx` — rewritten from placeholder to a
+  server component with `export const revalidate = 86400`. Fetches
+  `https://raw.githubusercontent.com/agentlint/agentlint/main/tools/leaderboard/data/aggregated/latest.json`
+  and renders rank/repo/stars/score/top-fail/scanned-at. Empty state
+  when the JSON has no rows or the fetch fails.
+- **Web** `app/leaderboard/methodology/page.tsx` — new route, moves
+  methodology + anti-gaming clauses out of the placeholder.
+- **Web** `lib/leaderboard/fetch.ts` — extracted fetcher + normalizer
+  so tests don't need to hit the network.
+- **12 new CLI tests** (`tools/leaderboard/src/run.test.ts`) + **14
+  new web tests** (`tests/leaderboard-fetch.test.ts`,
+  `tests/leaderboard-page.test.tsx`). CLI total 172 → 184; web
+  leaderboard suite 0 → 14.
+- **Marketing** `docs/marketing/drafts/leaderboard-launch.md` —
+  drafted, **not published** (charter §3.2). Escalated.
+- **ADR-0033** logs the design + the first-run-deferred decision.
 
 ### Programmatic `runScan` export on `@agentlinthq/cli` (2026-05-11, overnight loop — autonomous `cli-runscan-export` slice)
 
@@ -866,18 +908,13 @@ flip Stripe to live mode, announce in the Pro changelog.
 
 ### P1 — leaderboard launch (parallel track, no Stripe dependency)
 
-10. **Leaderboard runner + first public run.** Pipeline functions are
-    written and tested (`fetch-repos`, `clone-and-scan`, `aggregate`,
-    `render`); orchestration and a public page are not. Vertical slice:
-    - `tools/leaderboard/src/run.ts` — bin entrypoint that orchestrates
-      the four stages, writes `data/aggregated/<date>.json` and
-      `out/leaderboard.html`.
-    - Weekly GitHub Action in `agentlint/agentlint.sh` (or the CLI
-      repo) that runs the pipeline and commits the aggregated JSON.
-    - `/leaderboard` page in `agentlint.sh` reads the latest JSON
-      (build-time or revalidate-on-request) and renders the table.
-    - First public run scored against top 100 (not 1000) for sanity,
-      then ramp.
+10. **First leaderboard scan committed.** Runner + cron + page shipped
+    in the `leaderboard-runner` slice (see Done — recent). Remaining
+    work: trigger the first run manually via `workflow_dispatch` (or
+    wait for Monday 06:00 UTC), verify the committed JSON renders on
+    `/leaderboard`, then publish the launch post draft at
+    `docs/marketing/drafts/leaderboard-launch.md` (charter §3.2 —
+    maintainer call).
 
 ### P1 — hygiene
 

@@ -1742,3 +1742,108 @@ old paths still resolve.
   tier.
 - Streaming / incremental results API. Not until a consumer
   needs it.
+
+## ADR-0033 — Leaderboard runner orchestrates four pipeline functions; aggregated JSON lives in CLI repo, consumed by web via raw GitHub URL
+
+**Date.** 2026-05-11
+
+**Status.** Accepted.
+
+**Context.**
+
+The leaderboard's four pipeline functions (`fetchTopRepos`,
+`scanRepo`, `aggregate`, `renderJson` / `renderTable`) had 19
+passing tests but no entrypoint. The `/leaderboard` page on
+`agentlint.sh` was a placeholder. To launch publicly we need
+a runner, a weekly trigger, a public destination for the
+aggregated data, and a page that reads it.
+
+Three coupled questions had to be resolved together: where
+the JSON lives, how the page reads it, and what runs the
+pipeline.
+
+**Decision.**
+
+1. **Runner.** A new `tools/leaderboard/src/run.ts` exports
+   `runLeaderboard(opts)` and a CLI entrypoint via
+   `resolveEntryOptions` + `main`. It calls the four pipeline
+   functions in order, writes both a date-stamped JSON file
+   (historical record) and `latest.json` (stable filename
+   the web page reads). Per-repo errors are captured as rows
+   with `score: null`; the process exits 1 only when zero
+   scans succeed or a pre-scan stage throws.
+2. **Trigger.** A weekly GitHub Action under
+   `.github/workflows/leaderboard.yml` runs `cron: "0 6 * * 1"`
+   (Mondays 06:00 UTC), with `workflow_dispatch` as an
+   on-demand fallback. The job has `permissions: contents:
+   write` so it can commit the aggregated JSON back to `main`
+   and push.
+3. **Destination.** Aggregated JSON is committed to the
+   public CLI repo under
+   `tools/leaderboard/data/aggregated/<YYYY-MM-DD>.json` plus a
+   stable `latest.json`. The web repo stays private; the
+   leaderboard data is provably public because it lives in a
+   public repo's history.
+4. **Web read.** `app/leaderboard/page.tsx` is a server
+   component with `export const revalidate = 86400`. It
+   fetches the raw GitHub URL of `latest.json` once per day
+   per region. No client JS; no database table; no API route.
+5. **Methodology.** Moved into its own route at
+   `app/leaderboard/methodology/page.tsx` so the main page
+   leads with the table.
+
+**Alternatives considered.**
+
+- **Commit JSON into the private web repo.** Defeats the
+  point of a public leaderboard — the data would not be
+  inspectable without access to the private repo.
+- **Postgres table seeded by the worker.** Would require a
+  new schema, an API route, and an admin UI to inspect. The
+  JSON-in-git approach makes the data git-blameable and
+  reproducible without DB access.
+- **Daily cadence.** Wasteful — agentlint scores don't move
+  daily, and the GitHub Action would burn ~7x more minutes.
+- **Page reads from the file system via Next.js static
+  generation.** Would require the web repo to vendor the
+  JSON or run a sync job at build time. The raw-GitHub fetch
+  is simpler and survives independent web deploys.
+- **Run the first scan inside the overnight loop.** 100
+  shallow clones + CLI scans is long-running and burns the
+  loop's GITHUB_TOKEN budget. The Action is the right place
+  for this; we seeded an empty `latest.json` so the page
+  renders cleanly until the first cron run.
+
+**Consequences.**
+
+- 12 new tests on the CLI repo (`run.test.ts`), 14 new on the
+  web repo (`leaderboard-fetch.test.ts` + `leaderboard-page.test.tsx`).
+  CLI total 172 -> 184.
+- `pnpm run ci` green on the CLI repo; self-audit still
+  100/100.
+- Web typecheck + compile pass; pre-existing unrelated
+  failures inherited from `dev` (run-detail-scan-failure,
+  installation-reconcile, webhook-installation) are out of
+  scope for this slice.
+- The first public ranking does not ship tonight - it ships
+  on the first cron tick (Monday 06:00 UTC) or whenever the
+  maintainer triggers `workflow_dispatch`. The launch post
+  is drafted at `docs/marketing/drafts/leaderboard-launch.md`
+  and escalated (charter Section 3.2).
+
+**Rollback.**
+
+- Revert the slice's commits on both repos.
+- Optionally delete `.github/workflows/leaderboard.yml` to
+  stop the cron.
+- The four pipeline functions are untouched, so the rest of
+  the leaderboard tool continues to work.
+
+**Out of scope (followups).**
+
+- Pagination / sorting on the public page (top 100 fits one
+  page).
+- "Biggest movers" weekly diff once two scans are in history.
+- Per-repo report drilldowns - link to a future
+  `/leaderboard/:owner/:name` once full reports are exposed.
+- Public launch post (HN, X, blog) - gated behind charter
+  Section 3.2 review.

@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **CLI secret auto-upload shipped + dashboard UX + CLI auto-connect.** Two consecutive autonomous /agentlint-feature-pipeline runs landed: (1) device-flow `agentlint login`, `init` writes Actions workflow, dashboard metric cards (ADR-0023); (2) `agentlint install-secret` subcommand + `init` integration that PUTs `AGENTLINT_TOKEN` to the repo via the App installation token using libsodium sealed-box (ADR-0025). End-to-end paste-free onboarding once the GitHub App permission bump (manual) is applied. `agentlint-feature-pipeline` skill rewritten generic (ADR-0024).
+**Last updated:** 2026-05-10 by Claude Code — **OIDC-only CI auth shipped; install-secret feature reverted.** Maintainer pushed back on the `Secrets: read & write` perm ask from ADR-0025. Pivot: `POST /api/runs` now accepts a GitHub Actions OIDC JWT as the sole auth credential (no bearer required from CI). Repository claim → project row. The install-secret route, helper, schema columns, dashboard panel, CLI subcommand, and the `AGENTLINT_TOKEN` env in the generated workflow are all deleted (ADR-0026 supersedes ADR-0025). Net effect: fresh user runs `agentlint login && agentlint init && git push` and CI works with zero secret in the repo and zero App-permission bump. Local-dev still uses `agl_proj_…` from env / token file. Earlier in the session: device-flow `agentlint login` + dashboard metric cards (ADR-0023); `agentlint-feature-pipeline` skill rewritten generic (ADR-0024).
 
 ## Snapshot
 
@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #11](https://github.com/agentlint/agentlint.sh/pull/11) `feat: CLI secret auto-upload (web slice)` against `dev`. Previous: PR #10 merged. |
-| Latest commit (CLI) | [`#6` squashed to `main`](https://github.com/agentlint/agentlint/pull/6) — `feat(cli): install-secret subcommand + init wiring`. Previous: #4 (login), #5 (docs). |
+| Latest commit (web) | [PR #12](https://github.com/agentlint/agentlint.sh/pull/12) `feat: OIDC-only /api/runs + drop install-secret` against `dev`. Previous: #11 (install-secret) → merged then reverted in #12, #10 (dashboard UX). |
+| Latest commit (CLI) | [`#8` squashed to `main`](https://github.com/agentlint/agentlint/pull/8) — `feat(cli): OIDC-only workflow + drop install-secret`. Previous: #4 (login), #5 (docs), #6 (install-secret — now reverted), #7 (docs). |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **177 passing** (+16 from CLI #6). Web repo: **142 passing** (+25 from web #11). |
+| Tests | CLI repo: **164 passing** (net −14 from CLI #8 — 16 install-secret tests deleted, 2 workflow assertions added). Web repo: **145 passing** (net +2 from web #12 — 27 added, 25 deleted). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,61 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### OIDC-only pivot session (2026-05-10, late evening — autonomous /agentlint-feature-pipeline correction)
+
+Maintainer reviewed the just-shipped install-secret feature and
+flagged the `Secrets: read & write` permission ask as too aggressive
+for a lint tool. Cited Vercel / Cloudflare / Codecov-for-public-repos
+/ cloud SDKs — none of them ask for that scope. We re-architected
+under the same pipeline shape and landed two parallel reverts plus
+the OIDC-only ingest path that obviates the whole need.
+
+- **Web [PR #12](https://github.com/agentlint/agentlint.sh/pull/12) —
+  open against `dev`, deploy green.**
+  - `POST /api/runs` now accepts a GitHub Actions OIDC JWT in the
+    `x-github-oidc` header as the sole auth credential. Server
+    extracts the `repository` claim, looks up the project, inserts
+    the run with `tokenId = null, source = "ci",
+    provenance = "oidc-verified"`.
+  - New helper `extractOidcRepoClaim` in `lib/provenance.ts` does
+    the JWKS verification + claim extraction; the existing
+    `verifyOidcProvenance` (which compares the claim to an
+    expected repo) is unchanged.
+  - Bad bearer no longer falls through to OIDC — that closes a
+    project-ID probe vector.
+  - Migration `0003_drop_actions_secret_columns.sql` removes the
+    two columns added in slice 11.
+  - **Deleted**: install-secret route + tests, libsodium helper +
+    tests, dashboard secret-panel + tests, `libsodium-wrappers`
+    deps.
+  - Net test delta: +27 added, -25 deleted = +2 (143 → 145).
+- **CLI [PR #8](https://github.com/agentlint/agentlint/pull/8) —
+  merged.**
+  - Generated workflow drops the
+    `env: AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}` block.
+    `id-token: write` permission stays.
+  - The "Next: add AGENTLINT_TOKEN as a repo secret" hint now
+    only prints when the user passes `--no-workflow` (i.e. they
+    opted out of using Actions).
+  - **Deleted**: `agentlint install-secret` subcommand + tests,
+    its integration in `agentlint init`, the `noInstallSecret`
+    flag.
+  - Net test delta: +2 added, -16 deleted = -14 (178 → 164).
+  - Self-audit holds at 100/100.
+- **ADR-0026** supersedes ADR-0025 with the receipts: why
+  `Secrets: write` is rejected, why OIDC alone is sufficient, and
+  what the rollback looks like (the install-secret revert is a
+  single `git revert` away if we ever change our minds).
+- **No App permission bump** is required on either App. Existing
+  installations of `agentlint-ci` and `agentlint-ci-preview` stay
+  untouched.
+- **Out of scope, captured as next slice:** server-side scan on
+  push (Vercel-style) — install the App, on a `push` webhook the
+  server fetches the small set of metadata files agentlint
+  inspects via the GitHub Contents API (no clone, no Actions, no
+  user-side config) and runs the scan. Supersedes ADR-0019.
+  Tracked as `/agentlint-feature-pipeline server-side-scan-on-push`.
 
 ### CLI secret auto-upload session (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
 

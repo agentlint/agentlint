@@ -6,6 +6,9 @@ import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { buildReport, registerRuleCategory } from "@agentlinthq/core";
 import { runInit } from "./init/index.js";
+import { runLogin } from "./login/index.js";
+import { writeTokenFile } from "./login/token-file.js";
+import { runLogout } from "./logout/index.js";
 import { pushReport } from "./push/client.js";
 import { loadConfig } from "./push/config.js";
 import { detectPrContext, type PrContext } from "./push/pr-detect.js";
@@ -22,10 +25,18 @@ const VERSION = "2.0.0";
 const DEFAULT_PUSH_URL = "https://agentlint.sh";
 
 async function main() {
-  // Handle subcommands first. The only one v2 introduces is `init`.
+  // Handle subcommands first. v2 introduces `init`; v2.1 adds `login`/`logout`.
   const rawArgs = process.argv.slice(2);
   if (rawArgs[0] === "init") {
     await runInitCommand(rawArgs.slice(1));
+    return;
+  }
+  if (rawArgs[0] === "login") {
+    await runLoginCommand(rawArgs.slice(1));
+    return;
+  }
+  if (rawArgs[0] === "logout") {
+    await runLogoutCommand(rawArgs.slice(1));
     return;
   }
 
@@ -192,6 +203,106 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
     process.exit(0);
   }
   process.exit(1);
+}
+
+interface LoginCliFlags {
+  endpoint?: string;
+  "no-browser"?: boolean;
+  help?: boolean;
+}
+
+/**
+ * Dispatch for `agentlint login`. Runs the device flow and writes the
+ * token to ~/.config/agentlint/token on success.
+ */
+async function runLoginCommand(loginArgs: string[]): Promise<void> {
+  const parsed = parseArgs({
+    args: loginArgs,
+    options: {
+      endpoint: { type: "string" },
+      "no-browser": { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+  });
+  const flags = parsed.values as LoginCliFlags;
+
+  if (flags.help) {
+    printLoginHelp();
+    return;
+  }
+
+  const log = (line: string) => console.log(line);
+  const outcome = await runLogin(
+    {
+      endpoint: flags.endpoint,
+      noBrowser: flags["no-browser"],
+    },
+    {
+      log,
+      writeTokenFile: (t) => writeTokenFile(t),
+      openBrowser: (u) => openBrowserUrl(u),
+    },
+  );
+
+  if (outcome.kind === "success") {
+    process.exit(0);
+  }
+  if (outcome.kind === "expired") {
+    console.log("");
+    console.log("Authorization expired. Run `agentlint login` again.");
+    process.exit(2);
+  }
+  if (outcome.kind === "denied") {
+    console.log("");
+    console.log("Authorization was denied.");
+    process.exit(3);
+  }
+  // network-error
+  console.log("");
+  console.log(`Login failed: ${outcome.reason}`);
+  process.exit(4);
+}
+
+interface LogoutCliFlags {
+  help?: boolean;
+}
+
+async function runLogoutCommand(logoutArgs: string[]): Promise<void> {
+  const parsed = parseArgs({
+    args: logoutArgs,
+    options: {
+      help: { type: "boolean", short: "h" },
+    },
+    strict: true,
+  });
+  const flags = parsed.values as LogoutCliFlags;
+  if (flags.help) {
+    printLogoutHelp();
+    return;
+  }
+  const log = (line: string) => console.log(line);
+  await runLogout({ log });
+  process.exit(0);
+}
+
+/**
+ * Open a URL in the user's default browser. Best-effort: failures are
+ * swallowed because the CLI already printed the URL.
+ */
+function openBrowserUrl(url: string): Promise<void> {
+  return new Promise((resolveFn) => {
+    const platform = process.platform;
+    let cmd: string;
+    if (platform === "darwin") cmd = `open ${quoteShell(url)}`;
+    else if (platform === "win32") cmd = `start "" ${quoteShell(url)}`;
+    else cmd = `xdg-open ${quoteShell(url)}`;
+    exec(cmd, { timeout: 5_000, windowsHide: true }, () => resolveFn());
+  });
+}
+
+function quoteShell(s: string): string {
+  return `"${s.replace(/"/g, '\\"')}"`;
 }
 
 /**
@@ -364,6 +475,8 @@ agentlint v${VERSION}  —  Lighthouse for AI coding agents
 Usage:
   agentlint [path]           Scan the given path (default: cwd)
   agentlint init             Set up .agentlint.json for --push
+  agentlint login            Authorize the CLI via the device flow
+  agentlint logout           Delete the local token file
 
 Options:
   --json                     Machine-readable JSON to stdout
@@ -411,8 +524,39 @@ Options:
                              Generate one at https://agentlint.sh/cli/auth.
   --repo <owner/name>        Override the git remote-derived repo name.
   --endpoint <url>           API base URL (default: https://agentlint.sh).
+  --no-workflow              Skip writing .github/workflows/agentlint.yml.
+  --force-workflow           Overwrite an existing workflow file.
   --yes, -y                  Non-interactive: fail rather than prompting.
   --help, -h                 Show this message
+`);
+}
+
+function printLoginHelp() {
+  console.log(`
+agentlint login  —  authorize the CLI via the device flow
+
+Usage:
+  agentlint login [options]
+
+Options:
+  --endpoint <url>           API base URL (default: https://agentlint.sh).
+  --no-browser               Don't auto-open the verification URL.
+  --help, -h                 Show this message
+
+Exit codes:
+  0  success
+  2  expired
+  3  denied
+  4  network error
+`);
+}
+
+function printLogoutHelp() {
+  console.log(`
+agentlint logout  —  delete the local token file
+
+Usage:
+  agentlint logout
 `);
 }
 

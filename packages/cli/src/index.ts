@@ -4,7 +4,8 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { buildReport, registerRuleCategory } from "@agentlinthq/core";
+import type { Report } from "@agentlinthq/core";
+import { runScan, VERSION } from "./api.js";
 import { runInit } from "./init/index.js";
 import { runLogin } from "./login/index.js";
 import { writeTokenFile } from "./login/token-file.js";
@@ -18,10 +19,7 @@ import { renderHtml } from "./report/html.js";
 import { renderJson } from "./report/json.js";
 import { renderMarkdown } from "./report/markdown.js";
 import { renderTerminal } from "./report/terminal.js";
-import { allRules } from "./rules/index.js";
-import { createScanContext } from "./scan-context.js";
 
-const VERSION = "2.1.0";
 const DEFAULT_PUSH_URL = "https://agentlint.sh";
 
 async function main() {
@@ -78,33 +76,7 @@ async function main() {
   // To disambiguate, --push uses (in order): an explicit --url that looks
   // like an endpoint, AGENTLINT_URL, or the default. The docs URL passed
   // to the scan is whatever --url was, regardless.
-  const ctx = await createScanContext({ root, url: values.url });
-
-  // Register rule categories with core's score calculator.
-  for (const r of allRules) registerRuleCategory(r.meta.id, r.meta.category);
-
-  // Run all rules in parallel.
-  const results = await Promise.all(
-    allRules.map(async (rule) => {
-      try {
-        return await rule.check(ctx);
-      } catch (err) {
-        return {
-          ruleId: rule.meta.id,
-          status: "fail" as const,
-          points: 0,
-          message: `Rule crashed: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-    }),
-  );
-
-  const report = buildReport({
-    version: VERSION,
-    root,
-    url: values.url,
-    results,
-  });
+  const report = await runScan({ cwd: root, url: values.url });
 
   // Resolve PR context once. The `--pr <n>` flag is a manual override that
   // surfaces through the same detector via the AGENTLINT_PR env path.
@@ -406,10 +378,7 @@ async function resolveCommitSha(
  * non-zero — the local audit already succeeded; push is a side effect
  * (CHARTER §3, PRD §CLI surface).
  */
-async function runPush(
-  report: ReturnType<typeof buildReport>,
-  args: PushArgs,
-): Promise<void> {
+async function runPush(report: Report, args: PushArgs): Promise<void> {
   const endpoint =
     pickEndpoint(args.flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
 

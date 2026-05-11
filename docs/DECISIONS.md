@@ -1678,3 +1678,67 @@ in `package.json` idle; remove in a follow-up.
   to disk first — would let us inspect repos > 200 MB without
   the post-extract size walk. Not in scope until size becomes
   an actual blocker.
+
+## ADR-0032 — Programmatic `runScan` export on `@agentlinthq/cli`
+
+**Date:** 2026-05-11.
+
+**Context.** ADR-0027 / ADR-0030 / ADR-0031 left the web
+scan-worker depending on deep imports into
+`@agentlinthq/cli/dist/rules/index.js`,
+`/dist/scan-context.js`, and re-implementing the rule-runner
+loop on its own. Any rename inside `packages/cli/src/` would
+break the worker even though the public CLI surface was
+unchanged. The original CLI shipped `dist/index.js` as `bin`
+and `main`, which meant a consumer importing the package got
+a script that calls `process.exit`, not a function. There was
+no stable programmatic entry.
+
+**Decision.** Add `packages/cli/src/api.ts` that exports
+`runScan({ cwd, url? }): Promise<Report>` and re-export
+`Report` from `@agentlinthq/core`. Refactor
+`packages/cli/src/index.ts` so the scan-loop body delegates to
+`runScan` — exactly one implementation in the repo. Update
+the package's `main`, `types`, and `exports` map to point at
+`./dist/api.js` while the `bin` field still resolves to
+`./dist/index.js`, so the CLI binary stays unchanged.
+
+**Alternatives considered.**
+
+- **Keep deep imports forever.** Free today, expensive every
+  time we rename. Already bit us once during the scan-worker
+  rewrite.
+- **Move the rule-runner into `@agentlinthq/core`.** Would
+  break the IO-free invariant (the runner needs the scan
+  context, which reads files).
+- **Publish a separate `@agentlinthq/scan-worker` package.**
+  More moving parts, two release cadences, no benefit.
+
+**Consequences.**
+
+- `import { runScan } from "@agentlinthq/cli"` resolves and is
+  typed. Consumers no longer reach into `dist/rules` or
+  `dist/scan-context`.
+- `index.ts` lost ~30 lines (rule-runner loop) — the binary's
+  argv parsing and reporter glue stay where they were.
+- 8 new tests in `packages/cli/src/api.test.ts` cover: report
+  shape, ≥20 rules executed, empty repo has fails,
+  conformant-vs-empty score ordering, `url` plumbed through
+  to documentation rules, never-throws contract, `VERSION`
+  format, `report.version === VERSION`.
+- `pnpm run ci` still passes; `agentlint .` still scores
+  100/100; CLI v2.1.0 behavior unchanged.
+- Version bump to 2.2.0 is deferred to the `cli-release-2-2-0`
+  tier — adding a new entry-point is additive, not breaking.
+
+**Rollback.** Single revert. The deep-imports the web app uses
+today are unaffected because we only *added* an entry — the
+old paths still resolve.
+
+**Out of scope (followups).**
+
+- Update `agentlint-sh/lib/server-scan/runner.ts` to drop the
+  deep imports — handled by the `failed-scans-log` consumer
+  tier.
+- Streaming / incremental results API. Not until a consumer
+  needs it.

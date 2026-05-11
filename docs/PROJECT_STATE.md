@@ -16,9 +16,9 @@
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
 | Latest commit (web) | [PR #22](https://github.com/agentlint/agentlint.sh/pull/22) `fix: scan runner uses GitHub tarball API (no git binary)` against `dev`. Previous: #21 (dev → main scan-worker fix release, merged); #20 (scan-worker fix, merged); #19 (self-heal release). |
-| Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
+| Latest commit (CLI) | `feat(cli): programmatic runScan export on @agentlinthq/cli` (2026-05-11, autonomous loop — `cli-runscan-export` slice). Adds `packages/cli/src/api.ts` + 8 tests; package `main` now `./dist/api.js`; CLI binary unchanged. Prior: [`#10`](https://github.com/agentlint/agentlint/pull/10) `release(cli): v2.1.0`. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **260 passing** (net +3 from web #22 — server-scan-runner tarball test rewrite). |
+| Tests | CLI repo: **172 passing** (+8 from `api.test.ts`). Web repo: **260 passing** (net +3 from web #22 — server-scan-runner tarball test rewrite). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,30 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Programmatic `runScan` export on `@agentlinthq/cli` (2026-05-11, overnight loop — autonomous `cli-runscan-export` slice)
+
+ADR-0030 + ADR-0031 left the web scan-worker depending on deep imports
+into `@agentlinthq/cli/dist/rules` and `/dist/scan-context`. Any rename
+in `packages/cli/src/` would break the worker. Fix in one CLI-side PR;
+web consumer-side commit follows in the `failed-scans-log` tier.
+
+- **CLI** `packages/cli/src/api.ts` exports `runScan({ cwd, url? }):
+  Promise<Report>` + a `Report` re-export from `@agentlinthq/core` + a
+  `VERSION` constant. Package `main` and `types` now point at
+  `dist/api.js` / `dist/api.d.ts`; `exports` map adds the `.` entry.
+  `bin` still resolves to `dist/index.js` — CLI behavior unchanged.
+- **Refactor** `packages/cli/src/index.ts` lost ~30 lines: the
+  rule-runner loop body now delegates to `runScan`. Argv parsing and
+  reporter glue stay where they were.
+- **8 new tests** in `packages/cli/src/api.test.ts` cover Report shape,
+  ≥20 rules executed, empty-repo fails, conformant-vs-empty score
+  ordering, `url` plumbed through to documentation rules, never-throws
+  contract, `VERSION` format, `report.version === VERSION`. Total CLI
+  tests: 164 → **172**.
+- **ADR-0032** logs the rationale + alternatives considered.
+- `pnpm run ci` green; `agentlint .` still 100/100; v2.1.0 binary
+  unchanged. Version bump deferred to `cli-release-2-2-0` tier.
 
 ### Scan runner ditches `git`, uses GitHub tarball API (2026-05-10, late evening)
 

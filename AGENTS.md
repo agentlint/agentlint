@@ -31,6 +31,7 @@ packages/
     src/score.ts        buildReport, registerRuleCategory
   cli/                  CLI entrypoint, FS walker, reporters
     src/index.ts        bin entry — argv parsing + subcommand dispatch
+    src/api.ts          programmatic `runScan` export (package `main`)
     src/init/index.ts   `agentlint init` subcommand (v2)
     src/scan-context.ts cached FS reads + project meta detection
     src/push/           push pipeline

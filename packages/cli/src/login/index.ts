@@ -214,7 +214,7 @@ export async function runLogin(
   const now = deps.now ?? (() => Date.now());
   const writeFn = deps.writeTokenFile ?? realWriteTokenFile;
   const endpoint = resolveEndpoint(flags, deps);
-  const clientName = `agentlint-cli/${deps.clientVersion ?? "2.1.0"}`;
+  const clientName = `agentlint-cli/${deps.clientVersion ?? "2.2.0"}`;
 
   const deviceUrl = buildEndpointUrl(endpoint, DEVICE_PATH);
   const pollUrl = buildEndpointUrl(endpoint, POLL_PATH);

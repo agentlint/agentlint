@@ -50,4 +50,6 @@ jobs:
           fi
           DATESTAMP=$(date -u +%Y-%m-%d)
           git commit -m "chore(leaderboard): scheduled scan ${DATESTAMP}"
-          git push origin HEAD:main
+          # Push to dedicated unprotected branch so main stays PR-gated.
+          # Web page reads raw JSON from this branch.
+          git push origin HEAD:leaderboard-data --force

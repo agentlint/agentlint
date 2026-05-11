@@ -1166,3 +1166,92 @@ installation token. The CLI calls this route during `agentlint init`
 - Org-level Actions secrets. Would need different permissions and a
   different UI.
 - Other CI providers (GitLab, CircleCI). No demand yet.
+
+## ADR-0026 — OIDC-only CI auth supersedes ADR-0025
+
+**Date:** 2026-05-10.
+
+**Context.** ADR-0025 added auto-upload of `AGENTLINT_TOKEN` as a
+repo Actions secret via the agentlint GitHub App. Shipping that
+required bumping the App permissions to include
+`Secrets: Read & write`, which lets the App enumerate every Actions
+secret name on the installed repo. The encrypted values stay private,
+but the *list* of secret names is readable, and overwrites are
+possible — a substantial trust ask for a "lint" tool that the user
+adopted to run on push.
+
+The maintainer pushed back: most modern CI integrations either
+(a) require a manual paste, (b) use OIDC federation and need no
+secret at all, or (c) run on their own infrastructure. Vercel,
+Cloudflare Workers, AWS / GCP / Azure CLIs, Codecov for public
+repos — none of them ask for `Secrets: write`.
+
+We already trust GitHub Actions OIDC for run-level provenance
+(ADR-0019). The same JWT carries the repo identifier in its
+`repository` claim; we can use it as the auth credential itself, not
+just a supplementary provenance signal.
+
+**Decision.** `POST /api/runs` now accepts OIDC **alone** as the auth
+credential. The flow:
+
+1. CI step calls the CLI with no `AGENTLINT_TOKEN` env.
+2. The CLI fetches a GitHub Actions OIDC JWT with `audience=agentlint`
+   and POSTs it in the `x-github-oidc` header.
+3. The server verifies the JWT signature against GitHub's JWKS,
+   confirms `iss = https://token.actions.githubusercontent.com`,
+   extracts the `repository` claim, and looks up the matching
+   `project` row by `(repoOwner, repoName)`.
+4. On match, the run is inserted with `tokenId = null`,
+   `source = "ci"`, `provenance = "oidc-verified"`.
+
+The install-secret feature from ADR-0025 is deleted:
+
+- Web: `POST /api/projects/:id/install-secret` route, the
+  libsodium-based helper, the `secret-panel` component, and the
+  `project.actions_secret_installed_at` / `actions_secret_last_error`
+  columns are gone. Migration
+  `0003_drop_actions_secret_columns.sql` rolls them back.
+- CLI: the `install-secret` subcommand and its integration with
+  `agentlint init` are removed. The generated workflow drops the
+  `env: AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}` block.
+- The `libsodium-wrappers` dependency is removed from the web app.
+
+**Consequences.**
+
+- The agentlint GitHub Apps stay on their existing permission set
+  (`Pull requests: R/W`, `Contents: R`, `Checks: R/W`,
+  `Metadata: R`). **No re-consent ask on existing installs.**
+- A fresh GitHub user setting up CI for the first time runs:
+
+      $ agentlint login           # one device-flow login (local-dev)
+      $ agentlint init            # writes config + workflow file
+      $ git push                  # CI runs, OIDC-verified, no secret
+
+  Zero paste, zero secret on the repo, zero App permission bump.
+- Local-dev pushes (the `agentlint --push` invocation outside of
+  GitHub Actions) still use the `agl_proj_…` token resolved from
+  `--token` flag → `AGENTLINT_TOKEN` env → `~/.config/agentlint/token`
+  file. Local-first invariant unchanged.
+- A bearer-token presented with an invalid token now hard-fails 401
+  rather than falling back to OIDC. The fallthrough would have
+  allowed a probe for project IDs; the secure default is to reject
+  any presented credential that doesn't validate.
+
+**Rollback.** Both pivots are reversible. `git revert` on the two
+merge commits restores the install-secret feature and the bearer-only
+auth gate. The dropped `libsodium-wrappers` package can be re-added
+in the same revert.
+
+**Out of scope.**
+
+- **Server-side scan on push.** ADR-0019 deferred this and the
+  maintainer flagged it as the natural next step ("how does Vercel do
+  it?"). The path is documented but not implemented: install the App
+  → on `push` webhook, server fetches files via GitHub Contents API
+  (preferred, no clone, no Actions, no compute beyond an API call) or
+  shallow-clones the repo (fallback for large repos), runs agentlint,
+  inserts the run row, posts the PR comment. Tracked as the next
+  `/agentlint-feature-pipeline` slice with slug
+  `server-side-scan-on-push`. This ADR is the necessary pre-requisite
+  — without OIDC-only ingest, the CLI vs. server distinction was
+  muddled by the token expectation.

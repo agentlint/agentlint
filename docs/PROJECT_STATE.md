@@ -15,7 +15,7 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #16](https://github.com/agentlint/agentlint.sh/pull/16) `feat: dashboard UX overhaul` against `dev`. Previous: #15 (dev → main release of server-side scan, merged); #14 (server-side scan, merged); #13 (OIDC-only release, merged). |
+| Latest commit (web) | [PR #18](https://github.com/agentlint/agentlint.sh/pull/18) `fix: self-heal project.installation_id on App re-install` against `dev`. Previous: #17 (dev → main UX overhaul release, merged); #16 (UX overhaul, merged); #15 (server-scan release, merged). |
 | Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
 | Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **236 passing** (net +66 from web #16 — dashboard UX overhaul). |
@@ -38,6 +38,29 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Installation self-heal hotfix (2026-05-10, late evening)
+
+GitHub mints a new `installation_id` on App re-install. Pre-fix every
+`project.installation_id`-driven path returned 409 after re-install
+even though the App was clearly present. Two-route fix:
+
+- **Web [PR #18](https://github.com/agentlint/agentlint.sh/pull/18).**
+  - New `lib/auth/installation-reconcile.ts` with two helpers:
+    - `reconcileProjectInstallation` (single-project, defensive,
+      called from `/scan-now` before any 409).
+    - `reconcileProjectsForInstallation` (bulk, proactive, called
+      from `installation.created` + `installation_repositories.added`
+      webhook events).
+  - Match is case-insensitive on `account_login` (GitHub treats
+    owners case-insensitively for routing) and uses jsonb
+    containment (`@>`) against `installation.repos`.
+  - Suspended installations are filtered out (`suspendedAt IS NULL`).
+  - +14 tests (11 reconcile integration against Neon + 3 self-heal
+    on the scan-now route).
+- **ADR-0029** logs the alternatives considered (drop the column,
+  ask user to re-create, background job) and why the two-route
+  self-heal won.
 
 ### Dashboard UX overhaul (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
 

@@ -152,6 +152,8 @@ interface InitCliFlags {
   repo?: string;
   endpoint?: string;
   yes?: boolean;
+  "no-workflow"?: boolean;
+  "force-workflow"?: boolean;
   help?: boolean;
 }
 
@@ -167,6 +169,8 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
       repo: { type: "string" },
       endpoint: { type: "string" },
       yes: { type: "boolean", short: "y" },
+      "no-workflow": { type: "boolean" },
+      "force-workflow": { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
     strict: true,
@@ -190,6 +194,8 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
       repo: flags.repo,
       endpoint: flags.endpoint,
       yes: flags.yes,
+      noWorkflow: flags["no-workflow"],
+      forceWorkflow: flags["force-workflow"],
     },
     {
       cwd: process.cwd(),

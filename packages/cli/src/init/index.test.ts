@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LoginOutcome } from "../login/index.js";
 import type { FetchFn } from "../push/project-lookup.js";
 import type { ExecFn } from "../push/repo-detect.js";
 import { githubActionsSnippet, type InitDeps, runInit } from "./index.js";
@@ -28,6 +29,13 @@ function makeDeps(overrides: Partial<InitDeps> = {}): {
     getEnv: () => undefined,
     execFn: async () => ({ stdout: "" }),
     fetchFn: async () => new Response("", { status: 200 }),
+    readTokenFile: async () => null,
+    statFn: async () => null,
+    mkdirFn: async () => {},
+    runLoginFn: async (): Promise<LoginOutcome> => ({
+      kind: "network-error",
+      reason: "no login fn in test",
+    }),
     ...overrides,
   };
   return { deps, logs, prompts, written };
@@ -57,7 +65,7 @@ describe("runInit", () => {
       execFn: gitOriginExec("https://github.com/acme/widgets.git"),
       fetchFn: goodFetch(),
     });
-    const outcome = await runInit({}, deps);
+    const outcome = await runInit({ noWorkflow: true }, deps);
     expect(outcome.kind).toBe("wrote-config");
     expect(written).toHaveLength(1);
     expect(written[0]?.path).toBe("/repo/.agentlint.json");
@@ -94,19 +102,23 @@ describe("runInit", () => {
     expect(observedAuth).toBe("Bearer flag_token");
   });
 
-  it("prompts for token when none is in env", async () => {
-    let promptCount = 0;
+  it("prompts for paste when user declines the inline login", async () => {
+    const seen: string[] = [];
+    let calls = 0;
     const { deps } = makeDeps({
-      prompt: async () => {
-        promptCount += 1;
-        return "agl_proj_prompted";
+      prompt: async (q) => {
+        seen.push(q);
+        calls += 1;
+        // First prompt asks about login; decline. Second asks for paste.
+        return calls === 1 ? "n" : "agl_proj_prompted";
       },
       execFn: gitOriginExec("https://github.com/acme/widgets.git"),
       fetchFn: goodFetch(),
     });
     const outcome = await runInit({}, deps);
-    expect(promptCount).toBe(1);
     expect(outcome.kind).toBe("wrote-config");
+    expect(seen[0]).toContain("agentlint login");
+    expect(seen[1]).toContain("Paste your token");
   });
 
   it("returns no-token when --yes is set and env is missing", async () => {
@@ -116,9 +128,13 @@ describe("runInit", () => {
     expect(written).toHaveLength(0);
   });
 
-  it("returns no-token when interactive prompt returns empty", async () => {
+  it("returns no-token when user declines login and paste is empty", async () => {
+    let calls = 0;
     const { deps, written } = makeDeps({
-      prompt: async () => "",
+      prompt: async () => {
+        calls += 1;
+        return calls === 1 ? "n" : "";
+      },
     });
     const outcome = await runInit({}, deps);
     expect(outcome.kind).toBe("no-token");
@@ -279,8 +295,12 @@ describe("runInit", () => {
 
   it("trims whitespace from a prompted token", async () => {
     let observedAuth: string | null = null;
+    let calls = 0;
     const { deps } = makeDeps({
-      prompt: async () => "  agl_proj_padded  \n",
+      prompt: async () => {
+        calls += 1;
+        return calls === 1 ? "n" : "  agl_proj_padded  \n";
+      },
       execFn: gitOriginExec("https://github.com/acme/widgets.git"),
       fetchFn: async (_u, init) => {
         observedAuth = init.headers.Authorization ?? null;
@@ -296,6 +316,124 @@ describe("runInit", () => {
     });
     await runInit({}, deps);
     expect(observedAuth).toBe("Bearer agl_proj_padded");
+  });
+
+  it("falls back to the token file when env is unset", async () => {
+    let observedAuth: string | null = null;
+    const { deps } = makeDeps({
+      readTokenFile: async () => "agl_proj_from_file",
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: async (_u, init) => {
+        observedAuth = init.headers.Authorization ?? null;
+        return new Response(
+          JSON.stringify({
+            projectId: "p",
+            repoOwner: "acme",
+            repoName: "widgets",
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    const outcome = await runInit({}, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    expect(observedAuth).toBe("Bearer agl_proj_from_file");
+  });
+
+  it("runs login inline when the user accepts the prompt", async () => {
+    let loginCalled = false;
+    let observedAuth: string | null = null;
+    const { deps } = makeDeps({
+      prompt: async () => "Y",
+      runLoginFn: async () => {
+        loginCalled = true;
+        return {
+          kind: "success",
+          token: "agl_proj_via_login",
+          project: { id: "p", orgSlug: "acme" },
+        };
+      },
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: async (_u, init) => {
+        observedAuth = init.headers.Authorization ?? null;
+        return new Response(
+          JSON.stringify({
+            projectId: "p",
+            repoOwner: "acme",
+            repoName: "widgets",
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    const outcome = await runInit({}, deps);
+    expect(loginCalled).toBe(true);
+    expect(observedAuth).toBe("Bearer agl_proj_via_login");
+    expect(outcome.kind).toBe("wrote-config");
+  });
+
+  it("writes the GitHub Actions workflow by default", async () => {
+    const { deps, written } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+    });
+    const outcome = await runInit({}, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    const workflow = written.find((w) =>
+      w.path.endsWith(".github/workflows/agentlint.yml"),
+    );
+    expect(workflow).toBeDefined();
+    expect(workflow?.contents).toContain("npx -y @agentlinthq/cli@latest");
+  });
+
+  it("skips the workflow when --no-workflow is set", async () => {
+    const { deps, written, logs } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+    });
+    const outcome = await runInit({ noWorkflow: true }, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    const workflow = written.find((w) =>
+      w.path.endsWith(".github/workflows/agentlint.yml"),
+    );
+    expect(workflow).toBeUndefined();
+    expect(logs.join("\n")).toContain("--no-workflow");
+  });
+
+  it("refuses to overwrite an existing workflow file", async () => {
+    const { deps, written, logs } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      statFn: async (p) =>
+        p.endsWith(".github/workflows/agentlint.yml") ? { isFile: true } : null,
+    });
+    const outcome = await runInit({}, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    const workflow = written.find((w) =>
+      w.path.endsWith(".github/workflows/agentlint.yml"),
+    );
+    expect(workflow).toBeUndefined();
+    expect(logs.join("\n")).toContain("already exists");
+    expect(logs.join("\n")).toContain("--force-workflow");
+  });
+
+  it("overwrites an existing workflow file with --force-workflow", async () => {
+    const { deps, written } = makeDeps({
+      getEnv: (n) => (n === "AGENTLINT_TOKEN" ? "t" : undefined),
+      execFn: gitOriginExec("https://github.com/acme/widgets.git"),
+      fetchFn: goodFetch(),
+      statFn: async (p) =>
+        p.endsWith(".github/workflows/agentlint.yml") ? { isFile: true } : null,
+    });
+    const outcome = await runInit({ forceWorkflow: true }, deps);
+    expect(outcome.kind).toBe("wrote-config");
+    const workflow = written.find((w) =>
+      w.path.endsWith(".github/workflows/agentlint.yml"),
+    );
+    expect(workflow).toBeDefined();
   });
 });
 

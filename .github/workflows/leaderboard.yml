@@ -27,11 +27,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - name: Ensure CLI is executable
+        run: chmod +x ${{ github.workspace }}/packages/cli/dist/index.js
       - name: Run leaderboard scan
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LEADERBOARD_LIMIT: ${{ github.event.inputs.limit || '100' }}
           AGENTLINT_CLI_PATH: ${{ github.workspace }}/packages/cli/dist/index.js
+          LEADERBOARD_OUTDIR: ${{ github.workspace }}/tools/leaderboard/data/aggregated
+          LEADERBOARD_HTMLDIR: ${{ github.workspace }}/tools/leaderboard/out
         run: pnpm --filter @agentlinthq/leaderboard run start
       - name: Commit aggregated JSON
         env:

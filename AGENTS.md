@@ -89,6 +89,57 @@ branch protection; the web app repo (private) is enforced via local
 `.githooks/pre-push` + the `branch-policy.yml` CI workflow. New work goes
 on `feat/<slug>` → PR into `dev` → PR into `main`.
 
+## Web app environment (`agentlint-sh`)
+
+Sibling repo lives at `/Users/gerardopemz/Code/agentlint-sh` (private,
+`github.com/agentlint/agentlint.sh`). It's a Next.js 15 app on Vercel.
+
+| Concern | Where | ADR |
+|---|---|---|
+| Auth | Better-Auth + GitHub OAuth, Drizzle adapter | — |
+| Org plugin | `organization` Better-Auth plugin in `lib/auth.ts` | ADR-0018 |
+| Default-org on signup | `databaseHooks.user.create.after` in `lib/auth.ts` | — |
+| Project + token model | `db/schema.ts`: `project`, `project_token` | ADR-0018 |
+| CLI ingest | `app/api/runs/route.ts` accepts project token + OIDC | ADR-0019 |
+| CLI lookup (init) | `app/api/cli/projects/route.ts` | — |
+| Repo picker | `app/api/github/repos/route.ts` + dashboard form | ADR-0022 |
+| Post-install redirect | `app/api/github/post-install/route.ts` | ADR-0022 |
+| Webhook handler | `app/api/github/webhook/route.ts` (installation lifecycle only — push events no longer scan) | ADR-0019 |
+| PR-comment orchestrator | `lib/github-app/post-comment.ts` | — |
+| Provenance verify | `lib/provenance.ts` (GitHub Actions OIDC JWT) | ADR-0019 |
+| Branch policy | `.githooks/pre-push` + `.github/workflows/branch-policy.yml` | ADR-0021 |
+| Deploy + alias | `.github/workflows/deploy.yml` (push to main/dev) | ADR-0021 |
+
+### Web env vars (Vercel, by target)
+
+| Var | prod | preview | dev |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ Neon prod branch | ✅ Neon dev branch | ✅ Neon dev branch |
+| `BETTER_AUTH_SECRET` | ✅ | ✅ | ✅ |
+| `BETTER_AUTH_URL` | ✅ `https://agentlint.sh` | ✅ `https://preview.agentlint.sh` | ✅ |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✅ prod OAuth app | ✅ preview OAuth app | ✅ |
+| `GITHUB_APP_ID` | ✅ `3668343` (agentlint-ci) | ✅ `3670537` (agentlint-ci-preview) | ✅ |
+| `GITHUB_APP_SLUG` | ✅ `agentlint-ci` | ✅ `agentlint-ci-preview` | ✅ |
+| `GITHUB_APP_WEBHOOK_SECRET` | ✅ | ✅ | ✅ |
+| `GITHUB_APP_PRIVATE_KEY_B64` | ✅ | ✅ | ✅ |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` | ✅ | ✅ | ✅ |
+
+### Web routes (v2)
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /api/runs` | project token | CLI ingest (OIDC-verified if `x-github-oidc` header) |
+| `GET /api/cli/projects` | project token | CLI `init` lookup |
+| `POST/GET /api/projects` | session (org member) | create/list projects |
+| `GET/PATCH/DELETE /api/projects/:id` | session (admin for write) | project CRUD |
+| `POST/GET /api/projects/:id/tokens` | session (admin) | mint/list project tokens |
+| `DELETE /api/projects/:id/tokens/:tokenId` | session (admin) | revoke |
+| `GET /api/github/repos?orgSlug=...` | session | repo picker source |
+| `GET /api/github/post-install` | none (302) | Setup URL target; bounces back to project page |
+| `POST /api/github/webhook` | HMAC signature | installation lifecycle |
+| `POST /api/stripe/{checkout,portal,webhook}` | session admin / signature | billing |
+| `GET /badge/:owner/:name(.svg)` | public | score badge |
+
 ## Gotchas
 
 - The CLI is published as `@agentlinthq/cli` on npm; the unscoped `agentlint` and the `agentlint` org name are both unavailable (see [ADR-0011](./docs/DECISIONS.md#adr-0011--publish-under-agentlinthq-org-scope-the-unscoped-agentlint-and-the-org-name-agentlint-are-both-taken)). The installed binary is still `agentlint`. The core package is `@agentlinthq/core`. The workspace name is `agentlint-monorepo`.

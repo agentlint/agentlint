@@ -914,3 +914,99 @@ stay — they're cheap redundancy.
 **Consequence.** All future website work goes `feat/x → dev → main`. Vercel
 preview deploys give us the pre-merge gate. The branch policy notebook in
 PLAYBOOK.md walks through the flow.
+
+## ADR-0022 — Two GitHub Apps: one per environment
+
+**Date:** 2026-05-10.
+
+**Status:** Accepted. `agentlint-ci` continues to serve production
+(`agentlint.sh`). New `agentlint-ci-preview` serves `preview.agentlint.sh`
+(and local development via the same App).
+
+**Context.** After v2 shipped, the dashboard exposes the GitHub App
+installation flow (Vercel-style repo picker on the new-project page).
+That flow needs:
+
+1. The agentlint-ci webhook to fire on `installation.created` so we can
+   cache the repos in `installation.repos`.
+2. The webhook handler at `/api/github/webhook` to be reachable from
+   GitHub at a URL configured on the App.
+3. The webhook signature to verify against `GITHUB_APP_WEBHOOK_SECRET`.
+
+The slice-7 App `agentlint-ci` was set up with **one** webhook URL —
+`https://agentlint.sh/api/github/webhook`. Preview deployments at
+`https://preview.agentlint.sh` never received any webhook events, so
+their `installation` table stayed empty even after a user installed the
+App. The repo picker showed the "no repos found, install the App" CTA
+on preview indefinitely.
+
+Three options considered:
+
+- **Share one App, route webhooks to prod only.** Simplest; matches what
+  slice 7 did. But preview cannot test webhook handling at all, and any
+  schema change touching the install table must ship to prod before
+  we can test it on a preview deploy.
+- **Share one App, multiplex webhooks** (e.g., via a proxy or duplicate
+  delivery to both URLs). GitHub doesn't support multi-URL webhook
+  delivery; would need a relay service. Operational overhead not
+  justified at our scale.
+- **Two Apps, one per environment.** Each App points at its own webhook
+  URL. Each environment's `installation` table is populated only from
+  that App's deliveries. Users install whichever App matches the
+  environment they're operating in.
+
+**Decision.** Two Apps.
+
+| App | Webhook URL | Used by |
+|---|---|---|
+| `agentlint-ci` (App ID 3668343) | `https://agentlint.sh/api/github/webhook` | production |
+| `agentlint-ci-preview` (App ID 3670537) | `https://preview.agentlint.sh/api/github/webhook` | preview + development |
+
+The App slug, webhook secret, and private key live in environment-scoped
+env vars:
+
+- `GITHUB_APP_SLUG` — used to build the install URL the dashboard
+  surfaces (`https://github.com/apps/<slug>/installations/new`).
+- `GITHUB_APP_ID` — for JWT minting.
+- `GITHUB_APP_WEBHOOK_SECRET` — for verifying webhook signatures.
+- `GITHUB_APP_PRIVATE_KEY_B64` — base64-encoded PEM, decoded at runtime.
+
+The dashboard code reads `process.env.GITHUB_APP_SLUG` to decide which
+App to link the user to. Falls back to `agentlint-ci` if unset.
+
+**Setup URL** on each App must point at
+`https://<env>.agentlint.sh/api/github/post-install`. The repo picker
+appends `?state=<orgSlug>` to the install URL; GitHub forwards `state`
+to the Setup URL after install; our `/api/github/post-install` reads
+state, sanitizes the slug, and redirects to
+`/dashboard/orgs/<slug>/projects/new?installed=1` so the user lands
+back where they came from instead of a generic `/dashboard`.
+
+**Consequences.**
+
+- Users installing on production install `agentlint-ci`; users
+  installing from a preview install `agentlint-ci-preview`. A user
+  testing both sees two `installation` rows in the two databases
+  (Neon production branch vs dev branch).
+- Local development (`pnpm dev` against the dev Neon branch with the
+  preview env vars pulled via `vercel env pull`) uses the same
+  preview App. No third App needed.
+- When iterating on webhook handling logic, preview is now a real test
+  surface — `installation.created/deleted/suspend/repositories` events
+  flow through the preview deploy first.
+- Charter §3 (local-first, no telemetry on the CLI) is unaffected: the
+  CLI never talks to either App. The Apps are a dashboard / web
+  concern.
+
+**Edge cases.**
+
+- Users without the App installed see the empty-state CTA on the
+  new-project form pointing at the correct env's App.
+- Users with the App on one org but not another see a
+  `+ Add another GitHub account` button that re-opens the install flow
+  with `state=<orgSlug>` preserved.
+- The CLI ingest path (`POST /api/runs`) does NOT depend on App
+  installations — project tokens are sufficient. Apps exist only for
+  the dashboard repo picker and for posting PR comments. A repo can
+  ingest scores without ever installing the App; PR comments simply
+  won't be posted in that case.

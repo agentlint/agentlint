@@ -93,15 +93,16 @@ async function main() {
     commitFlag: values.commit,
   };
 
+  let policyExit = 0;
   if (values.json) {
     process.stdout.write(renderJson(report));
-    if (values.push) await runPush(report, pushArgs);
-    process.exit(report.score < 80 ? 1 : 0);
+    if (values.push) policyExit = await runPush(report, pushArgs);
+    process.exit(resolveExitCode(report.score, policyExit));
   }
   if (values.markdown) {
     process.stdout.write(renderMarkdown(report));
-    if (values.push) await runPush(report, pushArgs);
-    process.exit(report.score < 80 ? 1 : 0);
+    if (values.push) policyExit = await runPush(report, pushArgs);
+    process.exit(resolveExitCode(report.score, policyExit));
   }
 
   // Default: pretty terminal + write HTML to disk.
@@ -114,9 +115,20 @@ async function main() {
     console.log("");
   }
 
-  if (values.push) await runPush(report, pushArgs);
+  if (values.push) policyExit = await runPush(report, pushArgs);
 
-  process.exit(report.score < 80 ? 1 : 0);
+  process.exit(resolveExitCode(report.score, policyExit));
+}
+
+/**
+ * Resolve the final CLI exit code. Score-of-80 fails take exit 1; policy
+ * fails take exit 2. When both fail, policy wins so CI users see the most
+ * actionable signal (and can distinguish "score regression" from "policy
+ * change" via the exit code).
+ */
+export function resolveExitCode(score: number, policyExit: number): number {
+  if (policyExit !== 0) return policyExit;
+  return score < 80 ? 1 : 0;
 }
 
 interface InitCliFlags {
@@ -374,18 +386,19 @@ async function resolveCommitSha(
 }
 
 /**
- * Resolve token, detect repo, POST the report. Never throws and never exits
- * non-zero — the local audit already succeeded; push is a side effect
- * (CHARTER §3, PRD §CLI surface).
+ * Resolve token, detect repo, POST the report. Returns the exit code the
+ * caller should use: 0 for everything except an enforced policy failure,
+ * which returns 2. Push transport failures stay at 0 — the local audit
+ * already succeeded; push is a side effect (CHARTER §3, PRD §CLI surface).
  */
-async function runPush(report: Report, args: PushArgs): Promise<void> {
+async function runPush(report: Report, args: PushArgs): Promise<number> {
   const endpoint =
     pickEndpoint(args.flagUrl) ?? process.env.AGENTLINT_URL ?? DEFAULT_PUSH_URL;
 
   const token = await resolveToken();
   if (!token) {
     console.log(`Push failed: ${missingTokenMessage()}`);
-    return;
+    return 0;
   }
 
   const config = await loadConfig(args.cwd);
@@ -397,7 +410,7 @@ async function runPush(report: Report, args: PushArgs): Promise<void> {
     console.log(
       "Push failed: no projectId (run `agentlint init` or pass --project <id>).",
     );
-    return;
+    return 0;
   }
 
   const repo = await detectRepo(args.cwd);
@@ -418,11 +431,18 @@ async function runPush(report: Report, args: PushArgs): Promise<void> {
     },
   });
 
-  if (result.ok) {
-    console.log(`Pushed: ${result.runUrl}`);
-  } else {
+  if (!result.ok) {
     console.log(`Push failed: ${result.reason}`);
+    return 0;
   }
+  console.log(`Pushed: ${result.runUrl}`);
+  if (result.policy && result.policy.enforce && !result.policy.passed) {
+    console.log(
+      `Policy failed: score ${report.score} is below minimum ${result.policy.minScore}`,
+    );
+    return 2;
+  }
+  return 0;
 }
 
 /**
@@ -481,7 +501,13 @@ Options:
   --version, -v              Print version
   --help, -h                 Show this message
 
-Exit code: 0 if score >= 80, 1 otherwise. Use this to gate CI.
+Exit codes:
+  0   success (score >= 80)
+  1   score regression (score < 80)
+  2   policy failure (--push: org policy enforced and run scored below
+      the configured minimum). Reserved so CI can tell policy from score.
+
+Use these to gate CI.
 
 Docs: https://agentlint.sh
 `);

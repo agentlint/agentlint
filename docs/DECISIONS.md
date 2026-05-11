@@ -1446,3 +1446,64 @@ migration to roll back. The CLI is unaffected.
 - Saved filters on the user record.
 - Real-time updates (polling/SSE/websockets).
 - Run-vs-run comparison view.
+
+## ADR-0029 — Self-healing `project.installation_id` on App re-install
+
+**Date:** 2026-05-10.
+
+**Context.** When a user uninstalls and re-installs the agentlint GitHub
+App on the same org, GitHub mints a brand-new `installation_id`. The
+webhook handler dutifully writes a new row to `installation` (and
+deletes the old one), but `project.installation_id` still pointed at
+the now-gone old id. Every code path that minted an installation
+token from `project.installation_id` then returned 409 "Install the
+GitHub App" — even though the App was definitely installed. The dashboard
+"Run scan now" button was the most visible failure surface, but every
+server-scan path had the same trap.
+
+**Decision.** Self-heal `project.installation_id` on every signal that
+might change the truth:
+
+1. **Proactive (webhook).** When `installation.created` or
+   `installation_repositories.added` arrives, a bulk
+   `reconcileProjectsForInstallation` UPDATE patches every `project`
+   row whose `(repo_owner, repo_name)` is covered by the payload's
+   `repos[]` to point at the new `installation_id`. Self-healing
+   without the user doing anything.
+2. **Defensive (scan-now route).** Before returning 409
+   `app_not_installed`, the route calls
+   `reconcileProjectInstallation` to look up a non-suspended
+   `installation` row whose `account_login` matches the project's
+   `repo_owner` (case-insensitive) and whose `repos` jsonb contains
+   the `repo_name`. Found → patch the project row and proceed. Not
+   found → genuine 409.
+
+The helpers live in `lib/auth/installation-reconcile.ts` so other
+server surfaces (push webhook, future routes) can adopt them
+without duplication.
+
+**Alternatives considered.**
+
+- **Drop `project.installation_id` and look up by `(repo_owner,
+  repo_name)` every time.** Cleaner — one source of truth. Rejected
+  for now because the existing column is already used in many code
+  paths and changing it touches more files than this fix needed to.
+- **Tell the user to re-create the project.** Rude. They didn't do
+  anything wrong; GitHub's behavior is the problem.
+- **Background reconciliation job.** Overkill for a corner case that
+  hits during webhook delivery anyway.
+
+**Consequences.**
+
+- Re-installing the App on an org with existing projects now "just
+  works." First push or scan after re-install gets correctly
+  attributed.
+- Case-insensitive `account_login` match: GitHub treats owners as
+  case-insensitive for routing but the webhook echoes the user's
+  casing. Lower-on-both is the safer compare.
+- The defensive path adds one extra query before 409. Negligible
+  cost compared to the failure mode it prevents.
+- 11 new integration tests against Neon for the reconcile helpers
+  + 3 new self-heal tests on the scan-now route.
+
+**Rollback.** Revert the merge commit. No schema change.

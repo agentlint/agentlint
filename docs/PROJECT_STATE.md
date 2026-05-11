@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #18](https://github.com/agentlint/agentlint.sh/pull/18) `fix: self-heal project.installation_id on App re-install` against `dev`. Previous: #17 (dev → main UX overhaul release, merged); #16 (UX overhaul, merged); #15 (server-scan release, merged). |
+| Latest commit (web) | [PR #20](https://github.com/agentlint/agentlint.sh/pull/20) `fix: scan-now worker runtime + visible failures` against `dev`. Previous: #19 (dev → main self-heal release, merged); #18 (self-heal, merged); #17 (UX overhaul release, merged). |
 | Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **236 passing** (net +66 from web #16 — dashboard UX overhaul). |
+| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **257 passing** (net +9 from web #20 — scan-worker fix). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,22 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Scan-worker runtime + visible failures (2026-05-10, late evening)
+
+Production `run` table was empty despite healthy installations.
+Root cause investigation surfaced three accumulating silent
+failures in the server-scan worker:
+
+- **Web [PR #20](https://github.com/agentlint/agentlint.sh/pull/20).**
+  - `next.config.ts` re-adds `serverExternalPackages: ["@agentlinthq/cli", "@agentlinthq/core"]` (ADR-0019 had stripped it; ADR-0027 reintroduced the deep-imports but forgot the flag — the worker crashed on every `require()`).
+  - `maxDuration = 60` exported from `app/api/projects/[id]/scan-now/route.ts`, `app/api/projects/route.ts`, and `app/api/github/webhook/route.ts` so `after()` survives a real `git clone` on Vercel Hobby.
+  - Worker now writes a `run` row on failure with `report_json = { version: "server-failed", error: { reason, details } }`. `RunReport` renders a red "Scan failed" panel — failures are visible on the dashboard immediately, no more silent zero-state.
+  - +9 tests (5 `scheduleServerScan` paths, 2 webhook-push rewrite for the error-row shape, 2 run-detail panels). Total web 236 → 257.
+- **ADR-0030** logs the three failure modes and the alternatives
+  considered (separate logs table, Vercel Pro upgrade, refactoring
+  the CLI to export `runScan` as a public API — the last is the
+  proper follow-up).
 
 ### Installation self-heal hotfix (2026-05-10, late evening)
 

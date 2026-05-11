@@ -1507,3 +1507,95 @@ without duplication.
   + 3 new self-heal tests on the scan-now route.
 
 **Rollback.** Revert the merge commit. No schema change.
+
+## ADR-0030 — Server-scan worker runtime config + visible failures
+
+**Date:** 2026-05-10.
+
+**Context.** After shipping ADR-0027 (server-side scan on push) and
+ADR-0028 (dashboard UX + scan-now button), the `run` table in
+production stayed at zero rows even though `installation` was healthy
+and the dashboard fired the worker on click. Three independent
+silent-failure causes accumulated:
+
+1. **`serverExternalPackages` was dropped during the v2 cleanup.**
+   ADR-0014 originally added `serverExternalPackages:
+   ["@agentlinthq/cli", "tar"]` so Next.js wouldn't bundle the CLI
+   (whose `dist/index.js` has a top-level `main()` that runs on
+   `require()`). ADR-0019 removed the flag when server-side scans
+   went away. ADR-0027 brought server-scans back via deep-imports
+   into `@agentlinthq/cli/dist/...` but **the flag never came
+   back.** The worker crashed on first `require()` — silently,
+   because Next.js wrapped the import error and the route's
+   `console.error` was never paired with a logs table.
+
+2. **No `maxDuration` exported.** Next.js 15's `after()` runs for
+   the platform default (10s on Vercel Hobby). A `git clone` with
+   `--depth=1` can take up to 30s on a real repo, so the worker
+   was killed mid-clone. The PRD asked for `maxDuration: 60` but it
+   didn't land in the implementation.
+
+3. **Failures wrote nothing.** The worker returned `{ok: false,
+   reason}` and the dispatcher did `console.error`. From the
+   dashboard's perspective, the click looked successful (202 OK)
+   but no row ever appeared. Users couldn't see that anything had
+   even tried.
+
+**Decision.**
+
+1. **Re-add `serverExternalPackages` in `next.config.ts`** for both
+   `@agentlinthq/cli` and `@agentlinthq/core`. Add
+   `outputFileTracingIncludes` to ensure the bin and types travel
+   with the deploy.
+2. **Export `maxDuration = 60`** from every route that schedules
+   the worker:
+   - `app/api/projects/[id]/scan-now/route.ts`
+   - `app/api/projects/route.ts`
+   - `app/api/github/webhook/route.ts`
+3. **Make failures visible.** The worker now writes a `run` row
+   on failure with `score = 0`, `passes = 0`, `fails = 0`, and
+   `report_json = { version: "server-failed", error: { reason,
+   details } }`. `RunReport` detects the shape (no `results`
+   array, has `error`) and renders a red "Scan failed" panel
+   with the reason + details and a hint about what to check
+   ("App permissions", "repo size", etc.).
+
+No schema migration. No new dependency.
+
+**Alternatives considered.**
+
+- **A separate `scan_run_log` table** for failed attempts. Cleaner
+  in principle but doubles the surface area and the dashboard's
+  query path. The two paths (success + failure) producing rows
+  in the same `run` table with a distinguishing `report_json`
+  shape is simpler and keeps the existing list endpoint
+  untouched.
+- **Letting Next.js bundle the CLI.** Doesn't work — the CLI's
+  entry `main()` runs on require. We'd need to refactor
+  `@agentlinthq/cli` to export `runScan` without top-level side
+  effects. That's a CLI-side change with implications across
+  every consumer; the right follow-up but not the unblock.
+- **Vercel Pro / Hobby upgrade for the duration cap.** The Pro
+  tier raises maxDuration to 300s, but the project is currently
+  on Hobby (ADR-0014). `maxDuration: 60` plus the existing 30s
+  clone cap fits inside Hobby's 60s allowance for `after()`. No
+  upgrade needed for this slice.
+
+**Consequences.**
+
+- A scan that fails now shows up immediately as a red row on the
+  dashboard with the reason, so users (and we) can see something
+  tried — no more silent zero-state.
+- Existing CLI-style runs (`source = "ci" | "local"`) are
+  unaffected; the new shape only applies to `source = "server"`
+  failures.
+- The PR is reversible — `git revert` on the merge SHA restores
+  the previous (broken) behavior; no migration to roll back.
+
+**Out of scope (followups).**
+
+- Add a `runScan` programmatic export to `@agentlinthq/cli` so
+  the deep-imports become a public API.
+- A real logs table for non-user-visible operational events.
+- Per-org compute usage view ("you've used X% of your monthly
+  scan budget").

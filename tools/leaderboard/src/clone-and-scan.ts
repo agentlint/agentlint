@@ -4,7 +4,7 @@ import { join } from "node:path";
 export type ExecFn = (
   cmd: string,
   args: string[],
-  opts?: { cwd?: string; timeoutMs?: number },
+  opts?: { cwd?: string; timeoutMs?: number; tolerateNonZero?: boolean },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 export interface ScanRepoOptions {
@@ -100,8 +100,12 @@ export async function scanRepo(opts: ScanRepoOptions): Promise<ScanRepoResult> {
 
   let report: AgentlintReport;
   try {
+    // agentlint exits 1 when score < 100 — that's normal data, not a failure.
+    // tolerateNonZero captures stdout regardless of exit code so we can still
+    // parse the JSON report.
     const { stdout } = await execFn(cliPath, ["--json", dest], {
       timeoutMs: scanTimeoutMs,
+      tolerateNonZero: true,
     });
     report = parseAgentlintReport(stdout);
   } catch (err) {

@@ -139,7 +139,7 @@ const defaultExec: ExecFn = (cmd, args, opts) =>
     });
     child.on("close", (code) => {
       if (timeout) clearTimeout(timeout);
-      if (code === 0) {
+      if (code === 0 || opts?.tolerateNonZero) {
         resolveExec({ stdout, stderr });
         return;
       }

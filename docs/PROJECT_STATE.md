@@ -15,10 +15,10 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #20](https://github.com/agentlint/agentlint.sh/pull/20) `fix: scan-now worker runtime + visible failures` against `dev`. Previous: #19 (dev → main self-heal release, merged); #18 (self-heal, merged); #17 (UX overhaul release, merged). |
+| Latest commit (web) | [PR #22](https://github.com/agentlint/agentlint.sh/pull/22) `fix: scan runner uses GitHub tarball API (no git binary)` against `dev`. Previous: #21 (dev → main scan-worker fix release, merged); #20 (scan-worker fix, merged); #19 (self-heal release). |
 | Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **257 passing** (net +9 from web #20 — scan-worker fix). |
+| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **260 passing** (net +3 from web #22 — server-scan-runner tarball test rewrite). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
@@ -38,6 +38,21 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Scan runner ditches `git`, uses GitHub tarball API (2026-05-10, late evening)
+
+Smoke from the previous fix surfaced `clone_failed: spawn git ENOENT`
+in prod — Vercel's serverless Node runtime doesn't ship the `git`
+binary. ADR-0027 assumed it did. Fix in one PR.
+
+- **Web [PR #22](https://github.com/agentlint/agentlint.sh/pull/22).**
+  - `lib/server-scan/runner.ts` replaces `execFile("git", ["clone", …])` with `fetch(/repos/:owner/:repo/tarball/:sha)` + `tar.extract({ cwd, strip: 1, preserveOwner: false })`. Token in `Authorization: Bearer`; 30s `AbortSignal.timeout`; same allow-list, size cap, and `finally` cleanup as before.
+  - `tar` added to `dependencies` and to `serverExternalPackages` + `outputFileTracingIncludes` in `next.config.ts`.
+  - Test seam shifted from `execFileFn` to `fetchFn` + `extractFn`. 12 cases (was 9) covering fetch 404 / 500, tar.extract throw, AbortSignal timeout, GitHub API headers, plus the existing happy / size-cap / scan-fail / cleanup invariants.
+  - 260/260 tests pass; typecheck clean; `next build` succeeds.
+- **ADR-0031** logs the design + alternatives (isomorphic-git,
+  Contents API, build container). Tarball URL pinned to `:sha` so
+  the scan is exact-commit even after force-push.
 
 ### Scan-worker runtime + visible failures (2026-05-10, late evening)
 

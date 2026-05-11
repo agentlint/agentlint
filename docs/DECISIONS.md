@@ -1599,3 +1599,82 @@ No schema migration. No new dependency.
 - A real logs table for non-user-visible operational events.
 - Per-org compute usage view ("you've used X% of your monthly
   scan budget").
+
+## ADR-0031 — Server scans clone via GitHub tarball API, not `git`
+
+**Date:** 2026-05-10.
+
+**Context.** ADR-0027 implemented server-side scans by spawning
+`git clone --depth=1 -b <branch> <url> <tmpdir>` inside the Vercel
+function. Production was returning `clone_failed: spawn git ENOENT`
+on every "Run scan now" click. Vercel's serverless Node runtime
+does **not** include the `git` binary. The original ADR was wrong
+about runtime availability.
+
+**Decision.** Replace `git clone` with the GitHub REST API's
+tarball endpoint plus the `tar` npm package (pure JS, no native
+binary):
+
+1. `GET https://api.github.com/repos/:owner/:repo/tarball/:sha`
+   with `Authorization: Bearer <installation_token>` returns
+   a 302 to a signed `codeload.github.com` URL; the function
+   follows the redirect automatically.
+2. The response body is a `tar.gz` of the repo at that SHA.
+3. `Readable.fromWeb(res.body)` is piped into
+   `tar.extract({ cwd, strip: 1, preserveOwner: false })`. The
+   `strip: 1` collapses GitHub's `<owner>-<repo>-<sha>/` prefix
+   so the scanner sees a normal repo root.
+4. `tar` is added to `serverExternalPackages` in
+   `next.config.ts` (its zlib bindings break Next.js bundling
+   otherwise).
+
+The rest of the worker is unchanged — input allow-list
+validation, 200MB size cap walk, deep-import scan via
+`@agentlinthq/cli/dist/...`, `rm -rf` cleanup in `finally`, URL
+wipe before return.
+
+**Alternatives considered.**
+
+- **Pure-JS git client (`isomorphic-git`).** ~150KB, works in
+  serverless, drop-in for `git clone`. Larger surface area than
+  one fetch + extract; pulls in more code paths than we need.
+  Reconsider if we ever need branch / tag / history operations.
+- **GitHub Contents API.** Fetch only the files agentlint
+  inspects (~15 metadata files). Smaller per-scan footprint but
+  requires every rule to learn a remote-read interface — same
+  reason ADR-0027 rejected it then.
+- **Vercel build container** (with git pre-installed). Different
+  runtime, different deployment, much higher cost. Overkill.
+- **Skip cloning entirely and run scans only when the CLI
+  pushes.** Defeats the whole point of ADR-0027.
+
+**Consequences.**
+
+- `runServerScan` signature is unchanged — production callers
+  (`scan-now` route, project-create auto-scan, push webhook)
+  needed zero edits.
+- Test seam shifted from `execFileFn` to `fetchFn` + an
+  `extractFn` injection. 12 test cases (up from 9) cover happy
+  path, 4 invalid-input branches, fetch 404 / 500, tar.extract
+  throw, repo_too_big, scan_failed, success-path cleanup,
+  AbortSignal timeout, GitHub API headers shape.
+- The tarball URL takes a `:ref`, which accepts a SHA, branch,
+  or tag. We pass the SHA exclusively — manual-trigger resolves
+  HEAD via the Refs API, push webhook gets the SHA in the
+  payload. Most precise; survives force-push.
+- Bytes-over-the-wire is identical to a shallow clone for the
+  same repo + commit. Speed comparable. No GitHub rate-limit
+  concern at our scale (the tarball endpoint is cheap on the
+  REST quota).
+
+**Rollback.** `git revert` on the merge commit. `tar` dep stays
+in `package.json` idle; remove in a follow-up.
+
+**Out of scope (followups).**
+
+- A `runScan` programmatic export from `@agentlinthq/cli` so the
+  deep-imports become a public API (still tracked from ADR-0027).
+- Streaming the tarball directly into the scanner without going
+  to disk first — would let us inspect repos > 200 MB without
+  the post-extract size walk. Not in scope until size becomes
+  an actual blocker.

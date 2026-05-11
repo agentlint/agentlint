@@ -7,7 +7,7 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **OIDC-only CI auth shipped; install-secret feature reverted.** Maintainer pushed back on the `Secrets: read & write` perm ask from ADR-0025. Pivot: `POST /api/runs` now accepts a GitHub Actions OIDC JWT as the sole auth credential (no bearer required from CI). Repository claim → project row. The install-secret route, helper, schema columns, dashboard panel, CLI subcommand, and the `AGENTLINT_TOKEN` env in the generated workflow are all deleted (ADR-0026 supersedes ADR-0025). Net effect: fresh user runs `agentlint login && agentlint init && git push` and CI works with zero secret in the repo and zero App-permission bump. Local-dev still uses `agl_proj_…` from env / token file. Earlier in the session: device-flow `agentlint login` + dashboard metric cards (ADR-0023); `agentlint-feature-pipeline` skill rewritten generic (ADR-0024).
+**Last updated:** 2026-05-10 by Claude Code — **Server-side scan on push live in prod.** Vercel-style: install the agentlint GitHub App → `git push` → row appears. No workflow file, no repo secret, no App permission bump beyond the existing set. Path: `POST /api/github/webhook` → push event → shallow clone via App installation token (30s + 200MB caps) → in-process agentlint scan → row inserted with `source=server, provenance=server-scanned` → PR comment on open-PR branches. CLI v2.1.0 published to npm (`agentlint login`, `agentlint logout`, OIDC-only generated workflow). OIDC-only `/api/runs` live at agentlint.sh. Neon migrations applied dev + prod (`cli_auth_grant` table). Branch cleanup: only `main` + `dev` on web; `main` on CLI. ADR train: 0023 (device-flow), 0024 (skill rewritten generic), 0025 (install-secret → superseded by 0026), 0026 (OIDC-only), 0027 (server-side scan on push → supersedes ADR-0019).
 
 ## Snapshot
 
@@ -15,17 +15,17 @@
 |---|---|
 | Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
 | CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
-| Latest commit (web) | [PR #12](https://github.com/agentlint/agentlint.sh/pull/12) `feat: OIDC-only /api/runs + drop install-secret` against `dev`. Previous: #11 (install-secret) → merged then reverted in #12, #10 (dashboard UX). |
-| Latest commit (CLI) | [`#8` squashed to `main`](https://github.com/agentlint/agentlint/pull/8) — `feat(cli): OIDC-only workflow + drop install-secret`. Previous: #4 (login), #5 (docs), #6 (install-secret — now reverted), #7 (docs). |
+| Latest commit (web) | [PR #14](https://github.com/agentlint/agentlint.sh/pull/14) `feat: server-side scan on push` against `dev`. Previous: #13 (dev → main release, merged); #12 (OIDC-only, merged); #11/#10 ancestors. |
+| Latest commit (CLI) | [`#10` squashed to `main`](https://github.com/agentlint/agentlint/pull/10) — `release(cli): v2.1.0` — published to npm + tagged + GitHub Release created. |
 | Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
-| Tests | CLI repo: **164 passing** (net −14 from CLI #8 — 16 install-secret tests deleted, 2 workflow assertions added). Web repo: **145 passing** (net +2 from web #12 — 27 added, 25 deleted). |
+| Tests | CLI repo: **164 passing** (v2.1.0 published). Web repo: **170 passing** (net +25 from web #14 — server-scan runner, push-webhook handler, source pill, copy). |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
 | CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
 | CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Branch protection: main requires PR + green ci status. |
 | Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private**). GH Free can't protect private main — fallback: `.githooks/pre-push` + `branch-policy.yml` CI flag (ADR-0021). 4 dependabot alerts open. |
-| npm package | ✅ [`@agentlinthq/cli@2.0.0`](https://www.npmjs.com/package/@agentlinthq/cli) (latest, published 2026-05-10). [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core). |
-| GitHub Release | ✅ [v2.0.0](https://github.com/agentlint/agentlint/releases/tag/v2.0.0) (latest), [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
+| npm package | ✅ [`@agentlinthq/cli@2.1.0`](https://www.npmjs.com/package/@agentlinthq/cli) (latest, published 2026-05-10 — login subcommand + OIDC-only workflow). [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core). |
+| GitHub Release | ✅ [v2.1.0](https://github.com/agentlint/agentlint/releases/tag/v2.1.0) (latest), [v2.0.0](https://github.com/agentlint/agentlint/releases/tag/v2.0.0), [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
 | GitHub Apps | ✅ Two-app split per env (ADR-0022). Prod: `agentlint-ci` (App ID 3668343). Preview: `agentlint-ci-preview` (App ID 3670537). Each App's Setup URL points to `/api/github/post-install` on its env. Webhook secrets + private keys configured in Vercel per target. |
 | Repo picker | ✅ Vercel-style picker on `/dashboard/orgs/:slug/projects/new` (PR #6/#9). Reads `installation.repos` cache, groups by org, auto-fills name/owner/installationId. CTA `+ Add another GitHub account` for multi-org install. |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
@@ -38,6 +38,57 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Server-side scan on push (2026-05-10, late evening — autonomous /agentlint-feature-pipeline run)
+
+Pipeline triggered as the natural follow-up to the OIDC-only pivot.
+Single web sub-agent landed three sequential commits on
+`feat/server-side-scan-on-push`; PR #14 opened against `dev`.
+
+- **Web [PR #14](https://github.com/agentlint/agentlint.sh/pull/14)
+  — open against `dev`.**
+  - `lib/server-scan/runner.ts` — clones a repo via the App
+    installation token (`git clone --depth=1 --` with strict
+    `^[a-zA-Z0-9._/-]+$` validation on owner/repo/branch/sha), 30s
+    timeout, 200MB post-clone size cap. Runs agentlint in-process
+    via `@agentlinthq/cli` deep imports (proper programmatic
+    export is a TODO follow-up). `rm -rf` of temp dir in `finally`.
+  - `POST /api/github/webhook` extended to handle `push` events.
+    Filters: `refs/heads/*` only, default branch OR open-PR head.
+    Idempotency on `(project_id, commit_sha, source="server")`.
+    Worker via Next.js `after()`. PR-comment fire-and-forget on
+    open-PR pushes.
+  - Schema: `run.source` zod enum widened to accept `"server"`.
+    New `SourcePill` component renders a green chip for
+    server-side rows. New-project success state advertises
+    "scans run automatically — no setup required."
+  - +25 tests (146 → 170 on the agent's branch). Webhook
+    `signature-failure` test stays; new tests cover all 11 push
+    paths including tag-ignore, no-project, idempotency, scan
+    failure caught.
+- **Maintainer ops landed in the same session:**
+  - **Migrations** applied via Neon MCP to both dev and prod
+    branches. Only `0001_cli_auth_grant.sql` was needed — `0002`
+    + `0003` (install-secret columns) net to zero on a branch
+    that never saw them.
+  - **Web `dev → main` promotion** ([PR #13](https://github.com/agentlint/agentlint.sh/pull/13))
+    merged. OIDC-only `/api/runs` + dashboard UX live at
+    `agentlint.sh`. Prod deploy green; smoke
+    `POST /api/cli/auth/device` returned 200 with the documented
+    body shape.
+  - **CLI v2.1.0** published to npm via the publish workflow.
+    [Release](https://github.com/agentlint/agentlint/releases/tag/v2.1.0)
+    created.
+  - **Branch cleanup.** Web repo retains only `main` + `dev`.
+    CLI repo retains `main` (the release branch was the head of
+    an open PR at cleanup time; merged immediately after).
+- **ADR-0027** supersedes ADR-0019 with the receipts: cost model
+  (paid hosted tier justifies compute), security (strict input
+  validation + `--` separator + token wiped from memory), rollback
+  (env-var feature flag + revert commit).
+- **Out of scope:** programmatic `runScan` export on
+  `@agentlinthq/cli` to replace the deep-import workaround; a
+  failed-scans log table.
 
 ### OIDC-only pivot session (2026-05-10, late evening — autonomous /agentlint-feature-pipeline correction)
 

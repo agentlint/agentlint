@@ -1255,3 +1255,103 @@ in the same revert.
   `server-side-scan-on-push`. This ADR is the necessary pre-requisite
   — without OIDC-only ingest, the CLI vs. server distinction was
   muddled by the token expectation.
+
+## ADR-0027 — Server-side scan on push supersedes ADR-0019
+
+**Date:** 2026-05-10.
+
+**Context.** ADR-0019 removed server-side scans when v2 cut over to the
+project-token model. The argument was: cost of cloning every push for
+~30 lint rules is unclear, the CLI's `--push` from the user's CI gives
+the same signal, and we'd prefer a clean trust boundary (OIDC
+provenance) over server-executed scans.
+
+The maintainer revisited this after the OIDC-only pivot (ADR-0026):
+"how does Vercel do it?" The honest answer was — Vercel clones in
+their own infrastructure on every push and the user writes nothing.
+With a paid hosted tier we should be doing the same. ADR-0019's
+deferral was the right call at v2 cutover; it isn't anymore now that
+the dashboard is real.
+
+**Decision.** `POST /api/github/webhook` now handles `push` events
+end-to-end:
+
+1. Verify HMAC signature (existing).
+2. Filter to default-branch pushes + open-PR-head pushes; tag pushes
+   and other branches are ignored.
+3. Look up the `installation` row + the `project` row by
+   `(repoOwner, repoName)`. No project for this repo → 200 +
+   `{ status: "no_project" }`. The user installed the App but
+   hasn't created a project yet.
+4. Idempotency check against `(project_id, commit_sha,
+   source="server")`. Duplicate → 200 + `{ status: "duplicate" }`.
+5. Schedule the scan via Next.js `after()` so the webhook returns
+   inside GitHub's 10s budget.
+
+The scan worker:
+
+- Mints an installation token (existing `lib/github-app/auth.ts`).
+- Validates `owner/repo/branch/sha` against
+  `^[a-zA-Z0-9._/-]+$` before any shell call.
+- `git clone --depth=1 -b <branch> -- <safe_url> <tmpdir>` with the
+  `--` separator as belt-and-braces against URL-injected options.
+- 30s clone timeout, 200MB max repo size (post-clone walk via
+  `readdir` + `stat`).
+- Imports the agentlint scanner programmatically via
+  `@agentlinthq/cli/dist/rules/index.js` + `@agentlinthq/cli/dist/scan-context.js` +
+  `@agentlinthq/core` (the CLI's `main` is an executable entry, so a
+  proper `runScan` export is a follow-up).
+- Inserts the `run` row with `source = "server"`, `provenance =
+  "server-scanned"`.
+- On a push to an open-PR head, calls the existing
+  `postOrUpdatePrComment` helper.
+- `rm -rf` of the temp dir runs in `finally`; the URL with the
+  embedded token is overwritten in memory before return.
+
+**Alternatives considered.**
+
+- **GitHub Contents API instead of clone.** Faster (no disk, no
+  spawned git process) but requires every rule to learn a
+  remote-read interface — half the rules use globs and recursive
+  reads that don't trivially map to `GET /repos/.../contents/...`.
+  Rejected for now; revisit when a specific cost bottleneck
+  appears.
+- **`npx @agentlinthq/cli` as a subprocess.** Cold-start cost on
+  every push is real (npm fetch the first time, ~5-10s). In-process
+  import is faster and keeps the dep version pinned.
+- **Vercel KV / Upstash queue.** Overkill for the current scale.
+  `after()` is the smallest credible footprint. If we lose a scan
+  to a function eviction, GitHub's webhook retry settings (built-in
+  to the App) will redeliver and our idempotency key absorbs it.
+
+**Consequences.**
+
+- **No new App permission required.** Existing perms (`Contents: R`,
+  `Pull requests: R/W`, `Checks: R/W`, `Metadata: R`) are enough.
+  The Apps don't need re-consent.
+- **Zero user-side config.** Install the App → push → row appears.
+  Vercel-like UX.
+- **CLI workflow path stays as a fallback.** `agentlint init` still
+  works; OIDC-only Actions (ADR-0026) is still valid. Server-side
+  scan is now the default; Actions is for huge repos or users who
+  want CI control.
+- **Compute cost** lives on our side (Vercel functions). Cap is
+  `maxDuration: 60` + 200MB repo + 30s clone. Larger repos abort
+  with a logged reason.
+- **Trust boundary.** Server is now the trusted scanner — same
+  posture as Vercel's "we built it on our infra." Score-of-100 on
+  the CLI repo's self-audit is unaffected (CLI code untouched).
+
+**Rollback.** Feature flag `SERVER_SIDE_SCAN_ENABLED` (env var). Set
+to `false` on Vercel to disable the path without a revert. Full
+revert: `git revert` on the merge commit; `@agentlinthq/cli` dep can
+stay idle in `package.json`.
+
+**Out of scope (followups, none blocking).**
+
+- A `runScan` programmatic export on `@agentlinthq/cli` to replace
+  the deep imports.
+- A logs table for failed scans (currently `console.error` only).
+- Per-org compute budget + warning before throttling.
+- Selective rule execution (e.g. skip documentation rules on every
+  push, run them weekly).

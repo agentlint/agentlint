@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "description": "Overnight autonomous loop DAG. Slices grouped by tier. Slices in the same tier run in parallel via worktrees. Next tier waits for all prior-tier slices to complete (success or fail). A failed slice does not block its tier siblings, only its downstream dependents.",
+  "tiers": [
+    {
+      "tier": 0,
+      "parallel": true,
+      "slices": [
+        {
+          "slug": "cli-runscan-export",
+          "repo": "cli",
+          "brief": "scripts/loop/briefs/cli-runscan-export.md",
+          "blocks": []
+        },
+        {
+          "slug": "failed-scans-log",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/failed-scans-log.md",
+          "blocks": []
+        },
+        {
+          "slug": "run-public-toggle",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/run-public-toggle.md",
+          "blocks": []
+        },
+        {
+          "slug": "github-app-install-card",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/github-app-install-card.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 1,
+      "parallel": true,
+      "slices": [
+        {
+          "slug": "dependabot-triage",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/dependabot-triage.md",
+          "blocks": []
+        },
+        {
+          "slug": "leaderboard-runner",
+          "repo": "both",
+          "brief": "scripts/loop/briefs/leaderboard-runner.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 2,
+      "parallel": false,
+      "slices": [
+        {
+          "slug": "org-dashboard-team",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/org-dashboard-team.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 3,
+      "parallel": false,
+      "slices": [
+        {
+          "slug": "policy-thresholds-team",
+          "repo": "both",
+          "brief": "scripts/loop/briefs/policy-thresholds-team.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 4,
+      "parallel": false,
+      "slices": [
+        {
+          "slug": "stripe-live-products",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/stripe-live-products.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 5,
+      "parallel": false,
+      "slices": [
+        {
+          "slug": "revert-adr-0012",
+          "repo": "web",
+          "brief": "scripts/loop/briefs/revert-adr-0012.md",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "tier": 6,
+      "parallel": false,
+      "slices": [
+        {
+          "slug": "cli-release-2-2-0",
+          "repo": "cli",
+          "brief": "scripts/loop/briefs/cli-release-2-2-0.md",
+          "blocks": []
+        }
+      ]
+    }
+  ]
+}

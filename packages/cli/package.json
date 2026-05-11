@@ -6,7 +6,14 @@
   "bin": {
     "agentlint": "./dist/index.js"
   },
-  "main": "./dist/index.js",
+  "main": "./dist/api.js",
+  "types": "./dist/api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
     "test": "vitest run",

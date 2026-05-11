@@ -1,6 +1,6 @@
 {
   "name": "@agentlinthq/cli",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "The Lighthouse for AI coding agents. Audit any repo for how ready it is for Claude Code, Cursor, Codex, Copilot, and Gemini CLI. Get a 0–100 score and a fix list in 30 seconds.",
   "type": "module",
   "bin": {

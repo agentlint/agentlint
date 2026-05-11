@@ -23,7 +23,15 @@ agentlint --output report.html # custom HTML output path
 agentlint --no-html            # skip HTML report
 ```
 
-Exit code: 0 if score ≥ 80, 1 otherwise. Use this to gate CI.
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success — score ≥ 80, no enforced policy failure |
+| 1 | Score regression — score < 80 |
+| 2 | Policy failure — `--push` only. The run's org has a Team-plan policy with enforcement on, and the score is below the configured minimum. Distinct from 1 so CI can tell "score dropped" from "policy changed". |
+
+Use these to gate CI.
 
 ## `--push` (opt-in upload to agentlint.sh)
 

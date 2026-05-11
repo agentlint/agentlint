@@ -58,9 +58,39 @@ export interface PushReportArgs {
   oidcFetcher?: OidcFetcherFn;
 }
 
+/**
+ * Optional org policy evaluation returned by the server when the project
+ * belongs to a Team-plan org with a policy configured. Added in the
+ * `policy-thresholds-team` slice; absent for any other run (additive,
+ * minor-version-safe — see CHARTER §4).
+ */
+export interface PolicyEvaluation {
+  minScore: number;
+  enforce: boolean;
+  passed: boolean;
+}
+
 export type PushResult =
-  | { ok: true; runUrl: string }
+  | { ok: true; runUrl: string; policy: PolicyEvaluation | null }
   | { ok: false; reason: string };
+
+/**
+ * Defensive parser — coerces an unknown JSON value into a PolicyEvaluation,
+ * or returns null if the shape doesn't match. Exported for testing.
+ */
+export function parsePolicy(raw: unknown): PolicyEvaluation | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.minScore !== "number" || !Number.isFinite(r.minScore))
+    return null;
+  if (typeof r.enforce !== "boolean") return null;
+  if (typeof r.passed !== "boolean") return null;
+  return {
+    minScore: r.minScore,
+    enforce: r.enforce,
+    passed: r.passed,
+  };
+}
 
 interface Counts {
   pass: number;
@@ -171,17 +201,23 @@ export async function pushReport(args: PushReportArgs): Promise<PushResult> {
 
   if (res.status === 201) {
     let runUrl = `${parsed.origin}/dashboard`;
+    let policy: PolicyEvaluation | null = null;
     try {
-      const data = (await res.json()) as { url?: unknown; id?: unknown };
+      const data = (await res.json()) as {
+        url?: unknown;
+        id?: unknown;
+        policy?: unknown;
+      };
       if (typeof data.url === "string" && data.url.length > 0) {
         runUrl = data.url.startsWith("http")
           ? data.url
           : `${parsed.origin}${data.url.startsWith("/") ? "" : "/"}${data.url}`;
       }
+      policy = parsePolicy(data.policy);
     } catch {
-      // Body wasn't JSON; fall back to the dashboard root.
+      // Body wasn't JSON; fall back to the dashboard root, no policy.
     }
-    return { ok: true, runUrl };
+    return { ok: true, runUrl, policy };
   }
 
   if (res.status === 401 || res.status === 403) {

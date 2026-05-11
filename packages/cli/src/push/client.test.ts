@@ -4,6 +4,7 @@ import {
   buildPushBody,
   type FetchFn,
   type PushRunMetadata,
+  parsePolicy,
   pushReport,
 } from "./client.js";
 
@@ -310,5 +311,100 @@ describe("pushReport", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/invalid endpoint URL/);
+  });
+
+  it("returns policy=null when response has no policy field", async () => {
+    const fetchFn = mkFetch(
+      async () =>
+        new Response(JSON.stringify({ id: "r1", url: "/dashboard" }), {
+          status: 201,
+        }),
+    );
+    const result = await pushReport({ ...baseArgs, fetchFn });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.policy).toBeNull();
+  });
+
+  it("returns the parsed policy object when the server includes one", async () => {
+    const fetchFn = mkFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "r1",
+            url: "/dashboard",
+            policy: { minScore: 80, enforce: true, passed: false },
+          }),
+          { status: 201 },
+        ),
+    );
+    const result = await pushReport({ ...baseArgs, fetchFn });
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(result.policy).toEqual({
+        minScore: 80,
+        enforce: true,
+        passed: false,
+      });
+  });
+
+  it("returns policy=null when the policy field has a malformed shape", async () => {
+    const fetchFn = mkFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "r1",
+            url: "/dashboard",
+            // missing `passed`, wrong type on enforce
+            policy: { minScore: 80, enforce: "yes" },
+          }),
+          { status: 201 },
+        ),
+    );
+    const result = await pushReport({ ...baseArgs, fetchFn });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.policy).toBeNull();
+  });
+});
+
+describe("parsePolicy", () => {
+  it("returns null for nullish or non-object input", () => {
+    expect(parsePolicy(null)).toBeNull();
+    expect(parsePolicy(undefined)).toBeNull();
+    expect(parsePolicy("policy")).toBeNull();
+    expect(parsePolicy(42)).toBeNull();
+  });
+
+  it("returns null when required keys are missing", () => {
+    expect(parsePolicy({ minScore: 80, enforce: true })).toBeNull();
+    expect(parsePolicy({ minScore: 80, passed: true })).toBeNull();
+    expect(parsePolicy({ enforce: true, passed: true })).toBeNull();
+  });
+
+  it("returns null when types are wrong", () => {
+    expect(
+      parsePolicy({ minScore: "80", enforce: true, passed: true }),
+    ).toBeNull();
+    expect(parsePolicy({ minScore: 80, enforce: 1, passed: true })).toBeNull();
+    expect(
+      parsePolicy({ minScore: 80, enforce: true, passed: "yes" }),
+    ).toBeNull();
+    expect(
+      parsePolicy({
+        minScore: Number.NaN,
+        enforce: true,
+        passed: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns the parsed shape on a valid object", () => {
+    expect(parsePolicy({ minScore: 0, enforce: false, passed: true })).toEqual({
+      minScore: 0,
+      enforce: false,
+      passed: true,
+    });
+    expect(
+      parsePolicy({ minScore: 100, enforce: true, passed: false }),
+    ).toEqual({ minScore: 100, enforce: true, passed: false });
   });
 });

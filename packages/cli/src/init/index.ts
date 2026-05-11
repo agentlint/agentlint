@@ -15,12 +15,6 @@
 
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type {
-  InstallSecretDeps,
-  InstallSecretFlags,
-  InstallSecretOutcome,
-} from "../install-secret/index.js";
-import { runInstallSecret } from "../install-secret/index.js";
 import type { LoginDeps, LoginFlags, LoginOutcome } from "../login/index.js";
 import { runLogin } from "../login/index.js";
 import { readTokenFile as realReadTokenFile } from "../login/token-file.js";
@@ -60,12 +54,6 @@ export interface InitFlags {
   noWorkflow?: boolean;
   /** `--force-workflow` — overwrite an existing workflow file. */
   forceWorkflow?: boolean;
-  /**
-   * `--no-install-secret` — skip the post-init call to `install-secret`.
-   * Also implicitly skipped when `noWorkflow` is true (no Actions, no
-   * secret needed).
-   */
-  noInstallSecret?: boolean;
 }
 
 export type MkdirFn = (path: string) => Promise<void>;
@@ -78,11 +66,6 @@ export type RunLoginInlineFn = (
   flags: LoginFlags,
   deps: LoginDeps,
 ) => Promise<LoginOutcome>;
-
-export type RunInstallSecretInlineFn = (
-  flags: InstallSecretFlags,
-  deps: InstallSecretDeps,
-) => Promise<InstallSecretOutcome>;
 
 export interface InitDeps {
   cwd: string;
@@ -99,8 +82,6 @@ export interface InitDeps {
   readTokenFile?: ReadTokenFileFn;
   /** Run the device-flow login inline. Override for tests. */
   runLoginFn?: RunLoginInlineFn;
-  /** Run install-secret inline. Override for tests. */
-  runInstallSecretFn?: RunInstallSecretInlineFn;
 }
 
 export type InitOutcome =
@@ -301,15 +282,10 @@ export async function runInit(
 
   await maybeWriteWorkflow(flags, deps);
 
-  // Best-effort: ask the server to install AGENTLINT_TOKEN as a repo secret
-  // via the agentlint GitHub App's installation token. This removes the
-  // browser-paste step. Non-fatal — `init` already succeeded by writing the
-  // config + workflow. The user can re-run `agentlint install-secret` later.
-  const installed = await maybeRunInstallSecret(flags, deps);
-
-  // Fall back to the manual hint when install-secret didn't actually set
-  // the secret (skipped, failed, app not installed, etc.).
-  if (!installed) {
+  // Only print the manual secret-paste hint when the user opted out of the
+  // generated workflow. In the default path, CI authenticates via OIDC and
+  // never needs `AGENTLINT_TOKEN` (ADR-0026 supersedes ADR-0025).
+  if (flags.noWorkflow) {
     deps.log("");
     deps.log("Next: store your token as the AGENTLINT_TOKEN repo secret:");
     deps.log(
@@ -320,35 +296,6 @@ export async function runInit(
   }
 
   return { kind: "wrote-config", configPath, config };
-}
-
-/**
- * Optionally call the install-secret route after `init` writes the workflow.
- * Returns true when the secret was actually installed; false when the step
- * was skipped or failed (the caller falls back to the manual hint).
- *
- * Non-fatal in all branches: any failure here is rendered via the logger
- * and the overall init outcome remains `wrote-config`.
- */
-async function maybeRunInstallSecret(
-  flags: InitFlags,
-  deps: InitDeps,
-): Promise<boolean> {
-  if (flags.noInstallSecret) return false;
-  // If the user opted out of the workflow file, they're not using GHA — no
-  // secret to install.
-  if (flags.noWorkflow) return false;
-
-  const runFn = deps.runInstallSecretFn ?? runInstallSecret;
-  const outcome = await runFn(
-    { endpoint: flags.endpoint },
-    {
-      cwd: deps.cwd,
-      log: deps.log,
-      getEnv: deps.getEnv,
-    },
-  );
-  return outcome.kind === "installed";
 }
 
 /**
@@ -409,6 +356,10 @@ async function maybeWriteWorkflow(
 
 /**
  * Suggested GitHub Actions snippet. Exposed so tests can assert on it.
+ *
+ * CI auth is OIDC-only (ADR-0026 supersedes ADR-0025): the `/api/runs`
+ * route accepts the GitHub Actions OIDC JWT alone, so no `AGENTLINT_TOKEN`
+ * secret is required in the runner environment.
  */
 export function githubActionsSnippet(): string {
   return [
@@ -421,8 +372,5 @@ export function githubActionsSnippet(): string {
     "      with:",
     "        node-version: 20",
     "    - run: npx @agentlinthq/cli --push",
-    "      env:",
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions interpolation syntax, not a JS template literal.
-    "        AGENTLINT_TOKEN: ${{ secrets.AGENTLINT_TOKEN }}",
   ].join("\n");
 }

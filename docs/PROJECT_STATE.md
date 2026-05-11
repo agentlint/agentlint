@@ -7,23 +7,27 @@
 > after `CHARTER.md`. It tells you what is shipped, what is in flight, and what
 > to pick up next.
 
-**Last updated:** 2026-05-10 by Claude Code — **v2 architecture rewrite** on `feat/v2-org-model` branches in both repos. Better-Auth organization plugin; org→project→run hierarchy; project-scoped tokens (`agl_proj_…`); CLI v2.0.0 with `init` command and GitHub Actions OIDC provenance; server-side scans removed (ADR-0019); branch protection enforced (ADR-0021). DB reset on both Neon branches and migrated fresh.
+**Last updated:** 2026-05-10 by Claude Code — **v2 shipped + post-ship iterations.** Better-Auth org plugin live; org→project→run; project-scoped tokens (`agl_proj_…`); CLI v2.0.0 published; server-side scans removed (ADR-0019). After shipping: bulletproof auth hook (PR #3), dev branch deploy trigger (PR #4), Vercel-style GitHub repo picker (PR #6), env-aware install URL (PR #8), post-install bounce-back (PR #9), per-env GitHub Apps (ADR-0022).
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
-| Branch | `feat/v2-org-model` on both repos (target: `dev` → `main` via PR per ADR-0021) |
-| Latest commit | uncommitted — v2 rewrite in working tree on both repos |
-| Self-audit | CLI repo: 100/100. Web repo: typecheck clean, tests passing, Next build green. |
-| Tests | CLI repo: **123 passing** across 9 files (init + config + oidc + project-lookup + push.client + token + repo-detect + pr-detect + rules). Web repo: **50 passing** across 7 files (tokens, comment-template, ids, rate-limit, app-jwt, webhook-installation, webhook-signature). |
+| Web branch flow | `feat/*` → `dev` → `main`. `preview.agentlint.sh` auto-aliased to dev. `agentlint.sh` from main. (ADR-0021) |
+| CLI branch flow | `feat/*` → `main` (PR-gated, public repo branch protection enforced server-side). |
+| Latest commit (web) | `07c34ee` — `fix(github): post-install bounce-back to project page (#9)` on `dev` |
+| Latest commit (CLI) | `fd11902` — `feat(cli)!: v2.0.0 — project tokens, init command, OIDC provenance (#2)` on `main` |
+| Self-audit | CLI repo: 100/100. Web repo: typecheck clean, build green. |
+| Tests | CLI repo: **123 passing** across 9 files. Web repo: **50 passing** across 7 files. |
 | Lint | clean (Biome) |
 | Typecheck | clean (`tsc --noEmit`) |
-| CI | Green on `main` |
-| CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Website field: `https://agentlint.sh` |
-| Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private** as of 2026-05-10 — see ADR-0013). 4 dependabot alerts open (2 high, 2 moderate); triage pending. |
-| npm package | ✅ [`@agentlinthq/cli@1.1.0`](https://www.npmjs.com/package/@agentlinthq/cli) (latest published). **v2.0.0 prepared locally** (`packages/cli/package.json`) — not yet published; publish after the v2 web API ships. [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core) unchanged. |
-| GitHub Release | ✅ [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
+| CI | Green on both `main` branches. Web `dev` push triggers Vercel deploy + alias step. |
+| CLI repository | ✅ https://github.com/agentlint/agentlint (public, MIT). Branch protection: main requires PR + green ci status. |
+| Web repository | ✅ https://github.com/agentlint/agentlint.sh (**private**). GH Free can't protect private main — fallback: `.githooks/pre-push` + `branch-policy.yml` CI flag (ADR-0021). 4 dependabot alerts open. |
+| npm package | ✅ [`@agentlinthq/cli@2.0.0`](https://www.npmjs.com/package/@agentlinthq/cli) (latest, published 2026-05-10). [`@agentlinthq/core@1.0.0`](https://www.npmjs.com/package/@agentlinthq/core). |
+| GitHub Release | ✅ [v2.0.0](https://github.com/agentlint/agentlint/releases/tag/v2.0.0) (latest), [v1.1.0](https://github.com/agentlint/agentlint/releases/tag/v1.1.0), [v1.0.0](https://github.com/agentlint/agentlint/releases/tag/v1.0.0) |
+| GitHub Apps | ✅ Two-app split per env (ADR-0022). Prod: `agentlint-ci` (App ID 3668343). Preview: `agentlint-ci-preview` (App ID 3670537). Each App's Setup URL points to `/api/github/post-install` on its env. Webhook secrets + private keys configured in Vercel per target. |
+| Repo picker | ✅ Vercel-style picker on `/dashboard/orgs/:slug/projects/new` (PR #6/#9). Reads `installation.repos` cache, groups by org, auto-fills name/owner/installationId. CTA `+ Add another GitHub account` for multi-org install. |
 | Community files | ✅ `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` |
 | Domain | ✅ `agentlint.sh` live in production via Cloudflare DNS (apex + www). Preview deployments at `previo.agentlint.sh`. |
 | Landing app | ✅ deployed at https://agentlint.sh. Routes `/`, `/pricing`, `/login`, `/leaderboard` (placeholder), `/dashboard` (auth-gated), legal pages. Auto-deploy via `.github/workflows/deploy.yml` (push to main → prod, PR → preview). Vercel built-in git integration is **disconnected** because Hobby doesn't allow deploying private org repos — see ADR-0014. |
@@ -34,6 +38,52 @@
 | Launch copy | ✅ HN Show post, X thread, Product Hunt listing — `docs/marketing/launch-*.md` |
 
 ## Done — recent
+
+### Post-v2 iteration session (2026-05-10, evening — UX + ops fixes)
+
+After the v2 base shipped to `main`, this session ran a series of
+fixes flushed end-to-end via the PR → dev → main flow:
+
+- **PR #3** `fix(auth)`: bulletproof default-org hook on signup. GitHub
+  users with no display name + dynamic imports inside the Better-Auth
+  hook were producing `?error=internal_server_error`. Hook now uses
+  static imports, `node:crypto.randomUUID()`, try/catch + console.error.
+  Signup never aborts on default-org failure.
+- **PR #4** `ci(deploy)`: workflow only triggered on `main` push, so
+  squash-merges to `dev` never re-deployed. preview.agentlint.sh stuck
+  on a pre-v2 staging commit. Added `dev` push trigger + explicit alias
+  step + `workflow_dispatch` for manual reruns.
+- **DB reset + new fixtures (manual):** dropped all tables on both Neon
+  branches (production + dev), regenerated migration as
+  `0000_init_v2.sql`, re-applied via `scripts/run-migration.mjs`.
+- **CLI v2.0.0 published to npm** via the new `publish-cli.yml`
+  workflow (Actions → Run workflow). `NPM_TOKEN` secret configured.
+  Release `v2.0.0` tagged.
+- **Smoke tests** end-to-end on prod with the maintainer's real GitHub
+  OAuth signup: Personal org auto-created, project linked, token
+  minted, `POST /api/runs` 201 with row landed scoped to org +
+  project, `source=local, provenance=unverified` as expected.
+- **`staging` branch deleted** (legacy from pre-v2 preview alias
+  bootstrap; ADR-0021 settled on `dev` as the integration branch).
+- **PR #6** `feat(dashboard)`: Vercel-style GitHub repo picker on the
+  new-project form. `GET /api/github/repos` returns the user's
+  installations + cached repo lists; the form renders a grouped
+  select; auto-fills project name from repo name.
+- **PR #8** `fix(github)`: hardcoded `agentlint-ci` slug was sending
+  preview users to install the prod App. Read `GITHUB_APP_SLUG` env so
+  each environment links to its own App (ADR-0022).
+- **PR #9** `fix(github)`: post-install bounce-back. GitHub's Setup URL
+  default landed users on `/dashboard` after install instead of back
+  on the new-project page they came from. New `/api/github/post-install`
+  reads the `state=<orgSlug>` query (we now pass it on the install URL)
+  and 302s back to `/dashboard/orgs/<slug>/projects/new?installed=1`.
+  The form also shows a prominent `+ Add another GitHub account` CTA
+  so users with one connected install can link more.
+- **GitHub App for preview created**: `agentlint-ci-preview` App ID
+  `3670537`, slug `agentlint-ci-preview`. Webhook URL +
+  `GITHUB_APP_*` env vars configured on Vercel preview + development
+  targets via the REST API. Setup URL on both Apps (manual GH setting)
+  must point to `https://<env>.agentlint.sh/api/github/post-install`.
 
 ### v2 architecture session (2026-05-10, org-centric multi-tenant rewrite)
 

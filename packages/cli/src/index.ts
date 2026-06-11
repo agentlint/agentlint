@@ -10,6 +10,7 @@ import { runInit } from "./init/index.js";
 import { runLogin } from "./login/index.js";
 import { writeTokenFile } from "./login/token-file.js";
 import { runLogout } from "./logout/index.js";
+import { runPromptCmd } from "./prompt-cmd/index.js";
 import { pushReport } from "./push/client.js";
 import { loadConfig } from "./push/config.js";
 import { detectPrContext, type PrContext } from "./push/pr-detect.js";
@@ -35,6 +36,10 @@ async function main() {
   }
   if (rawArgs[0] === "logout") {
     await runLogoutCommand(rawArgs.slice(1));
+    return;
+  }
+  if (rawArgs[0] === "prompt") {
+    await runPromptCommand(rawArgs.slice(1));
     return;
   }
 
@@ -193,6 +198,51 @@ async function runInitCommand(initArgs: string[]): Promise<void> {
     process.exit(0);
   }
   process.exit(1);
+}
+
+interface PromptCliFlags {
+  url?: string;
+  rule?: string[];
+  help?: boolean;
+}
+
+/**
+ * Dispatch for `agentlint prompt`. Scans, then prints one consolidated
+ * fix prompt (markdown) to stdout — pipeable into a clipboard or a file.
+ * Informational messages go to stderr so stdout stays clean.
+ */
+async function runPromptCommand(promptArgs: string[]): Promise<void> {
+  const parsed = parseArgs({
+    args: promptArgs,
+    options: {
+      url: { type: "string" },
+      rule: { type: "string", multiple: true },
+      help: { type: "boolean", short: "h" },
+    },
+    allowPositionals: true,
+    strict: true,
+  });
+  const flags = parsed.values as PromptCliFlags;
+
+  if (flags.help) {
+    printPromptHelp();
+    return;
+  }
+
+  const outcome = await runPromptCmd(
+    {
+      path: resolve(parsed.positionals[0] ?? "."),
+      url: flags.url,
+      rules: flags.rule,
+    },
+    {
+      scan: (opts) => runScan(opts),
+      write: (text) => process.stdout.write(text),
+      log: (line) => console.error(line),
+    },
+  );
+
+  process.exit(outcome.kind === "unknown-rules" ? 1 : 0);
 }
 
 interface LoginCliFlags {
@@ -469,6 +519,7 @@ agentlint v${VERSION}  —  Lighthouse for AI coding agents
 
 Usage:
   agentlint [path]           Scan the given path (default: cwd)
+  agentlint prompt [path]    Print a copy-paste fix prompt for AI agents
   agentlint init             Set up .agentlint.json for --push
   agentlint login            Authorize the CLI via the device flow
   agentlint logout           Delete the local token file
@@ -510,6 +561,34 @@ Exit codes:
 Use these to gate CI.
 
 Docs: https://agentlint.sh
+`);
+}
+
+function printPromptHelp() {
+  console.log(`
+agentlint prompt  —  print a copy-paste fix prompt for AI coding agents
+
+Scans the repo, then prints one consolidated markdown prompt covering every
+failed check, ready to paste into Claude Code, Cursor, Copilot, Codex, or any
+other AI coding agent. The prompts are predefined templates — agentlint
+itself never calls an AI.
+
+Usage:
+  agentlint prompt [path] [options]
+
+Options:
+  --rule <id>                Only include this rule (repeatable).
+  --url <docs-url>           Also audit the docs site at this URL.
+  --help, -h                 Show this message
+
+Examples:
+  agentlint prompt                     # prompt for all findings
+  agentlint prompt --rule agents-md-exists
+  agentlint prompt | pbcopy            # straight to clipboard (macOS)
+
+Exit codes:
+  0  prompt printed (or nothing to fix)
+  1  unknown rule id
 `);
 }
 

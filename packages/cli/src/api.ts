@@ -13,6 +13,7 @@ import {
   type Report,
   registerRuleCategory,
 } from "@agentlinthq/core";
+import { attachPrompts } from "./prompts/compose.js";
 import { allRules } from "./rules/index.js";
 import { createScanContext } from "./scan-context.js";
 
@@ -57,10 +58,14 @@ export async function runScan(opts: ScanOptions): Promise<Report> {
     }),
   );
 
+  // Enrich actionable results with predefined fix prompts (static
+  // templates — no LLM). Returns new result objects; never mutates.
+  const enriched = attachPrompts(results, ctx.meta);
+
   return buildReport({
     version: VERSION,
     root,
     url: opts.url,
-    results,
+    results: enriched,
   });
 }

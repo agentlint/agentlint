@@ -54,6 +54,14 @@ export function renderMarkdown(report: Report): string {
           lines.push(f.fix.diff);
           lines.push("```");
         }
+        if (f.fix.prompt) {
+          lines.push("");
+          lines.push("**Prompt for an AI agent:**");
+          lines.push("");
+          lines.push("````text");
+          lines.push(f.fix.prompt);
+          lines.push("````");
+        }
       }
       lines.push("");
     }

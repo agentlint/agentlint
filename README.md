@@ -25,6 +25,9 @@ npx @agentlinthq/cli --markdown
 
 # Also audit the docs site
 npx @agentlinthq/cli --url https://docs.example.com
+
+# Print a copy-paste fix prompt for your AI agent (no AI involved — predefined templates)
+npx @agentlinthq/cli prompt
 ```
 
 Or install once and use the short command:
@@ -57,6 +60,41 @@ If you don't have any of these, the agent guesses. It guesses badly. The fix is 
 Five categories, 30 checks, 0–100 score. See [AGENTS.md](./AGENTS.md) for project conventions.
 
 For agent integration: `agentlint --json` and `agentlint --markdown` produce structured reports. Tell Claude Code or Cursor "run agentlint and fix what's failing" and it'll do the work.
+
+## Fix prompts (`agentlint prompt`)
+
+agentlint doesn't just diagnose — it hands you the remediation. Every failed
+check carries a predefined fix prompt (a static template parametrized with
+your detected package manager, language, and workspaces — agentlint never
+calls an AI). Get them three ways:
+
+```bash
+# One consolidated prompt covering every finding, ordered by score impact.
+# Paste it into Claude Code, Cursor, Copilot, Codex, or any coding agent.
+agentlint prompt
+
+# Just one rule
+agentlint prompt --rule agents-md-exists
+
+# Straight to the clipboard (macOS)
+agentlint prompt | pbcopy
+```
+
+The prompts also appear per-finding in the `--markdown` and `--json` outputs
+(`fix.prompt`) and as collapsible blocks in the HTML report.
+
+## Agent skill
+
+This repo ships a ready-made skill at [`skills/agentlint/SKILL.md`](./skills/agentlint/SKILL.md)
+that teaches any agent the audit → fix → verify workflow (using the installed
+`agentlint` binary, or `npx -y @agentlinthq/cli@latest` when not installed).
+For Claude Code:
+
+```bash
+cp -r skills/agentlint ~/.claude/skills/agentlint
+```
+
+Then ask: "audit this repo's agent readiness and fix the findings".
 
 ## Optional: push reports to a dashboard (`--push`)
 

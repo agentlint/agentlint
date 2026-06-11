@@ -1847,3 +1847,63 @@ pipeline.
   `/leaderboard/:owner/:name` once full reports are exposed.
 - Public launch post (HN, X, blog) - gated behind charter
   Section 3.2 review.
+
+## ADR-0034 — Predefined fix prompts: static templates per rule, no LLM in the CLI
+
+**Date.** 2026-06-11
+
+**Status.** Accepted.
+
+**Context.**
+
+Competing tools (Factory.ai Agent Readiness, @kodus/agent-readiness)
+pair their diagnosis with remediation — Factory spins up an agent
+that opens fix PRs; Kodus uses LLM calls for four of its checks.
+agentlint's charter forbids both: local-first, no telemetry, no
+network in the hot path, and no AI dependency. But diagnosis
+without remediation leaves the user to translate findings into
+agent instructions by hand.
+
+**Decision.**
+
+Ship predefined fix prompts: one static template per rule,
+parametrized only with already-detected project metadata (package
+manager, language, workspaces) and the finding message. The CLI
+never calls an LLM — the *user's* agent (Claude Code, Cursor,
+Copilot, Codex, ...) executes the prompt.
+
+- `packages/cli/src/prompts/registry.ts` — one builder per rule id;
+  a completeness test fails the build if a rule lacks a prompt.
+- `packages/cli/src/prompts/compose.ts` — `attachPrompts` enriches
+  scan results (`fix.prompt`, additive field on the core `Result`
+  type); `composeFixPrompt` assembles one consolidated markdown
+  prompt ordered fails-first, then rule weight descending, with
+  anti-gaming ground rules and a verification footer.
+- `agentlint prompt [path] [--rule <id>] [--url <u>]` — new
+  subcommand printing the consolidated prompt to stdout (info
+  messages on stderr; exit 0 normally, 1 on unknown rule id —
+  it is a generator, not a CI gate).
+- Reporters: markdown gets a per-failure prompt block, HTML a
+  `<details><pre>` (no JS — offline constraint holds), JSON
+  carries `fix.prompt` automatically.
+- `skills/agentlint/SKILL.md` — repo-shipped agent skill teaching
+  the audit → fix → verify loop, preferring the installed binary
+  and falling back to `npx -y @agentlinthq/cli@latest`.
+
+Prompts that require an owner decision (license choice, robots.txt
+policy) explicitly instruct the agent to stop and ask rather than
+guess. Warn results without a `fix` recipe are informational and
+get no prompt. Scoring is untouched: no weight, rule, or
+`CATEGORY_MAX` changes.
+
+**Consequences.**
+
+- The "diagnose → hand off to your own agent" loop closes without
+  violating local-first or adding an AI dependency.
+- The web dashboard gets prompts for free via `runScan` (the field
+  rides through `report_json`).
+- Adding a rule now requires adding a prompt (enforced by test) —
+  deliberate friction that keeps remediation coverage at 100%.
+
+**Rollback.** Revert the feature commit; the `fix.prompt` field is
+optional, so downstream consumers are unaffected.

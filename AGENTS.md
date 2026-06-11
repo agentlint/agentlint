@@ -33,6 +33,8 @@ packages/
     src/index.ts        bin entry — argv parsing + subcommand dispatch
     src/api.ts          programmatic `runScan` export (package `main`)
     src/init/index.ts   `agentlint init` subcommand (v2)
+    src/prompt-cmd/     `agentlint prompt` subcommand (consolidated fix prompt)
+    src/prompts/        predefined fix-prompt templates (registry) + composer
     src/scan-context.ts cached FS reads + project meta detection
     src/push/           push pipeline
       client.ts         POST /api/runs with project token

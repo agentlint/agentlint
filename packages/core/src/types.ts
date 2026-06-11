@@ -31,6 +31,11 @@ export interface Result {
     summary: string;
     diff?: string;
     docsUrl?: string;
+    /**
+     * Predefined, copy-pasteable prompt an AI coding agent can run to apply
+     * the fix. Generated from static templates — never by an LLM.
+     */
+    prompt?: string;
   };
 }
 

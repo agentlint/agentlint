@@ -119,6 +119,11 @@ export function renderHtml(report: Report): string {
                 ? `<pre class="diff">${escapeHtml(r.fix.diff)}</pre>`
                 : ""
             }
+            ${
+              r.fix?.prompt
+                ? `<details class="prompt"><summary>Copy-paste prompt for your AI agent</summary><pre>${escapeHtml(r.fix.prompt)}</pre></details>`
+                : ""
+            }
           </td>
         </tr>`,
         )
@@ -217,6 +222,9 @@ export function renderHtml(report: Report): string {
   .fix { margin-top: 6px; font-size: 14px; color: var(--muted); }
   .fix strong { color: var(--fg); }
   pre.diff { background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0 0; }
+  details.prompt { margin-top: 8px; font-size: 13px; }
+  details.prompt summary { cursor: pointer; color: var(--accent); }
+  details.prompt pre { background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; margin: 8px 0 0; }
   .muted { color: var(--muted); }
   footer { margin-top: 32px; color: var(--muted); font-size: 13px; text-align: center; }
   footer a { color: var(--accent); }

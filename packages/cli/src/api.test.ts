@@ -105,6 +105,19 @@ describe("runScan programmatic API", () => {
     await expect(runScan({ cwd })).resolves.toBeDefined();
   });
 
+  it("attaches predefined fix prompts to failing results", async () => {
+    const cwd = await makeTempRepo({});
+    dirs.push(cwd);
+    const report = await runScan({ cwd });
+    const fail = report.results.find(
+      (r) => r.ruleId === "agents-md-exists" && r.status === "fail",
+    );
+    expect(fail?.fix?.prompt).toContain("AGENTS.md");
+    // Passing/skipped results carry no prompt.
+    const skipped = report.results.find((r) => r.status === "skip");
+    expect(skipped?.fix?.prompt).toBeUndefined();
+  });
+
   it("exposes VERSION as a string in the form X.Y.Z", () => {
     expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });

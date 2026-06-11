@@ -69,6 +69,10 @@ export function renderTerminal(report: Report): string {
       const icon = f.status === "fail" ? pc.red("✗") : pc.yellow("!");
       lines.push(`    ${icon} ${pc.dim(f.ruleId.padEnd(34))} ${f.message}`);
     }
+    lines.push("");
+    lines.push(
+      `  ${pc.dim("Run")} ${pc.bold("agentlint prompt")} ${pc.dim("for a copy-paste prompt your AI agent can use to fix these.")}`,
+    );
   }
 
   lines.push("");

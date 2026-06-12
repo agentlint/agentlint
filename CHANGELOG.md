@@ -5,6 +5,35 @@ All notable changes to agentlint are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-06-12
+
+Predefined fix prompts. agentlint now hands you the remediation, not just
+the diagnosis — and still never calls an AI itself ([#20](https://github.com/agentlint/agentlint/pull/20), ADR-0034).
+
+### Added
+
+- **Fix prompts on every finding.** Each of the 30 rules ships a static
+  prompt template, parametrized with the detected package manager,
+  language, and workspaces. Attached to actionable results as
+  `fix.prompt` in `--json`/`--markdown` output, rendered as collapsible
+  blocks in the HTML report.
+- **`agentlint prompt [path]` subcommand.** Prints one consolidated,
+  copy-paste markdown prompt for any AI coding agent (Claude Code,
+  Cursor, Copilot, Codex, ...), ordered by score impact with anti-gaming
+  ground rules and a verification footer. `--rule <id>` (repeatable)
+  narrows to specific findings; output is pipeable (`| pbcopy`). Exit 0
+  normally, 1 on unknown rule id.
+- **Agent skill.** `skills/agentlint/SKILL.md` teaches agents the
+  audit → fix → verify workflow, preferring the installed binary and
+  falling back to `npx -y @agentlinthq/cli@latest`.
+- **`@agentlinthq/core` 1.1.0.** Additive optional `prompt` field on
+  `Result.fix`.
+
+### Changed
+
+- Terminal report hints at `agentlint prompt` when findings exist.
+- Scoring is untouched: no rule, weight, or `CATEGORY_MAX` changes.
+
 ## [2.2.0] - 2026-05-11
 
 Programmatic API + policy-aware exit codes. The CLI binary, flags, and

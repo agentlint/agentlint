@@ -18,7 +18,7 @@ import { allRules } from "./rules/index.js";
 import { createScanContext } from "./scan-context.js";
 
 /** CLI version. Kept in sync with packages/cli/package.json. */
-export const VERSION = "2.2.0";
+export const VERSION = "2.3.0";
 
 export interface ScanOptions {
   /** Path to the repo to scan. Resolved against process.cwd(). */

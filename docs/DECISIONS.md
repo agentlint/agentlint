@@ -1907,3 +1907,38 @@ get no prompt. Scoring is untouched: no weight, rule, or
 
 **Rollback.** Revert the feature commit; the `fix.prompt` field is
 optional, so downstream consumers are unaffected.
+
+
+## ADR-0035 — Web v3: single $5/mo Pro plan, plan-driven gating, prompts-first dashboard
+
+**Date:** 2026-06-12 · **Repo:** agentlint.sh (web) · **PRs:** #34, #35, #36
+
+**Decision.** Collapse Pro ($19) + Team ($99) into one **Pro plan at $5/mo
+flat per org**. Free tier: 1 project, 30-day history, badge, PR comments.
+Pro: unlimited projects/history/members, org-wide overview, policy
+enforcement (CLI exit 2). Legacy `team` subscription rows normalise to
+`pro`; the owner bypass in the plan gate is removed — entitlement is
+purely plan-driven.
+
+**Why.** Competitor scan: Codecov ~$10/user/mo, Codacy ~$15/user,
+CodeClimate ~$17/user — all per-seat for heavier products. Our hosted
+layer stores and renders reports the CLI already produced (no AI
+compute), so it's priced as an impulse tier. Per-org flat eliminates
+seat math. The owner bypass made every personal org effectively paid
+for free, which is incompatible with a $5 price.
+
+**Also in this slice.**
+- Landing demo is a real `--json` report fixture (score 64) rendered with
+  dashboard components; `/docs` + `/compare` are static TSX, no MDX dep.
+- Chart kit stays hand-rolled server-rendered SVG (re-affirms ADR-0028).
+- Run pages build the consolidated fix prompt server-side from stored
+  `report_json` (`lib/prompts/consolidated.ts`) — same ordering contract
+  as `agentlint prompt`, no CLI internal imports (re-affirms ADR-0032).
+- Stripe checkout with an existing `customer` + `tax_id_collection`
+  requires `customer_update: { name: "auto", address: "auto" }` — the
+  re-enabled flow from web PR #32 500'd without it.
+
+**Rollback.** Revert web PR #36 on `main`; re-point
+`STRIPE_PRICE_PRO_MONTHLY` at the old price ids. Subscription rows are
+forward-compatible in both directions because `normalisePlan` accepts
+both plan ids.

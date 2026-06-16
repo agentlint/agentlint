@@ -1982,3 +1982,78 @@ in the browser until cache-busted — the deployment was fine all along.
 
 **Rollback.** Revert the web PRs; unset the env vars. No schema, no CLI,
 no data-model impact.
+
+
+## ADR-0037 — Platform admin panel (`/admin`), role-gated, on the web app
+
+**Date:** 2026-06-16 · **Repo:** agentlint.sh (web) · **PRs:** #39 (dev), dev→main
+
+**Decision.** Build the platform-admin surface as a route group in the existing
+web app (`/admin`) rather than a separate app or a monorepo. The web app already
+owns the Drizzle schema, Better-Auth, the Stripe client, and org-membership
+helpers; a second app or monorepo would re-introduce the plumbing that staying
+in one app gives for free. No `@agentlinthq/cli`/`tar` runtime deps are added, so
+the Vercel function bundle stays within ADR-0019 limits.
+
+**Identity.** Admin = `user.role === 'admin'` (a DB column, chosen by the owner
+over an env allowlist). Hardened: `role` is `input: false` in Better-Auth and
+there is no set-role endpoint, so the ONLY way a row becomes admin is a manual
+DB mutation — role escalation is out of the blast-radius of any write bug. The
+gate predicate lives in `lib/admin/access.ts` with zero auth/db imports,
+deliberately isolated from `lib/auth/org-membership.ts` so a bug in one can't
+widen the other.
+
+**Gate (defense in depth).** (1) `middleware.ts` — cheap session-cookie check
+on `/admin/*` pages, 404s unauthenticated traffic (does NOT match
+`/api/admin/*`, which keeps the org-owner scan-failures auth). (2)
+`app/admin/layout.tsx` — the real gate: server-side role check →
+`notFound()` (404, never 403/redirect, so the surface can't be enumerated).
+(3) Every server action re-verifies admin. The dashboard nav link is
+server-rendered only for admins (absent from the DOM otherwise — no CSS hiding).
+
+**Anti-leak.** `lib/admin/queries.ts` enforces a column allowlist; secret
+columns (OAuth access/refresh/id tokens, password, project-token hash, CLI
+grant plaintext, session token) can never be selected. A test asserts the
+selections against a forbidden-column set.
+
+**Scope.** Phase 1: read-only users/orgs/subscriptions, support tickets
+(own tables `support_ticket`/`support_message`; `/support` for users scoped by
+session userId, `/admin/tickets` for staff), revoke-sessions (no password reset —
+auth is GitHub OAuth only), `admin_audit_log` on every mutation. Phase 2:
+delete user (refuses admins), delete org (FK cascade), ban/unban — each with a
+TYPED confirmation (re-type the email/slug, server re-compares) and audited.
+Ban is enforced by a `session.create.before` hook that refuses a session for a
+banned user, plus session deletion for immediate logout.
+
+**Schema.** Migrations 0006 (`user.role`, `admin_audit_log`, `support_ticket`,
+`support_message`) + 0007 (`user.banned_at`, `user.ban_reason`), both idempotent
+(`IF NOT EXISTS`) for the manual Neon apply path. Applied to BOTH branches; prod
+migrated BEFORE the main deploy so code never read a missing `role` column.
+
+**Rollback.** Revert the web PRs; the columns/tables are additive and can stay.
+
+---
+
+## ADR-0038 — Clear all Dependabot alerts; pin transitive deps in pnpm-workspace
+
+**Date:** 2026-06-16 · **Repo:** agentlint.sh (web)
+
+**Decision.** Resolve all 8 open Dependabot alerts (1 critical, 3 high, 3
+moderate, 1 low) on the web repo. Direct bumps: better-auth 1.2.7→1.6.18,
+drizzle-orm 0.36.4→0.45.2 (high: SQL injection <0.45.2) with drizzle-kit→0.31.10,
+tar→7.5.16. Transitive vulns fixed with EXACT pins in `pnpm-workspace.yaml`
+overrides (the pnpm-10+ location — package.json overrides are ignored here):
+shell-quote 1.8.4 (CRITICAL), vite 8.0.16, esbuild 0.28.1, qs 6.15.2. Removed
+the deprecated `@types/tar` stub (tar ships its own types and it was the last
+path pulling a vulnerable tar).
+
+**Gotcha logged.** pnpm overrides with `>=` ranges left vulnerable versions
+deduped in the tree (e.g. vite stayed 8.0.11); exact pins were required to
+collapse to a single patched version. `pnpm audit` is the source of truth, not
+on-disk `.pnpm` folder listings (stale dirs linger).
+
+**Verification.** `pnpm audit` → 0 known vulnerabilities. drizzle-orm's minor
+jump (0.36→0.45) was de-risked by the full gate: typecheck clean, 492 tests
+pass, build green.
+
+**Rollback.** Revert the dependency commit; the overrides are additive.

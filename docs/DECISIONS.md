@@ -1942,3 +1942,43 @@ for free, which is incompatible with a $5 price.
 `STRIPE_PRICE_PRO_MONTHLY` at the old price ids. Subscription rows are
 forward-compatible in both directions because `normalisePlan` accepts
 both plan ids.
+
+
+## ADR-0036 — Web observability: Sentry (errors) + PostHog (analytics), env-gated, reverse-proxied
+
+**Date:** 2026-06-16 · **Repo:** agentlint.sh (web) · **PRs:** #37, #38
+
+**Decision.** Add Sentry for error/performance monitoring and PostHog
+(US cloud) for product analytics to the web app only — the CLI stays
+local-first with zero telemetry (charter §3). Both integrations are fully
+env-gated: with no keys present, init is a no-op and the app boots clean.
+
+**Choices.**
+- **PostHog: autocapture ON, session replay OFF.** Pageviews + click
+  events give usage insight; no screen recording keeps a paid dashboard
+  privacy-respecting. `person_profiles: identified_only` — identify on
+  sign-in, reset on sign-out, so anonymous MTU cost stays low.
+- **Reverse proxy via `/ingest` rewrites** (next.config) so ad-blockers
+  don't drop ~20-40% of events. Sentry uses its `/monitoring` tunnelRoute
+  for the same reason. Note: the tunnel 404s without the Sentry envelope
+  query params (`?o=&p=&r=`); that's expected, not a misconfig.
+- **Sentry @sentry/nextjs v10** with `instrumentation.ts` (server/edge),
+  `instrumentation-client.ts`, and `app/global-error.tsx`. Source maps
+  upload at build when `SENTRY_AUTH_TOKEN` is set; build still succeeds
+  without it.
+- **`@sentry/cli` build approval** lives in `pnpm-workspace.yaml`
+  `allowBuilds` (this repo's pnpm-10+ convention), not package.json.
+
+**Privacy.** Adding PostHog made the existing privacy-policy promises
+("no third-party tracking cookies", "no telemetry … to any third party")
+false. The policy was updated in the same change: discloses analytics +
+error monitoring, lists PostHog + Sentry as sub-processors, bumps the
+date. The CLI's local-first guarantee in §1 is unchanged and still true.
+
+**Gotcha logged.** Vercel edge-caches rewrite 404s for 4h
+(`cache-control: public, max-age=14400`). A stale 404 on
+`/ingest/static/array.js` from before the deploy made PostHog look broken
+in the browser until cache-busted — the deployment was fine all along.
+
+**Rollback.** Revert the web PRs; unset the env vars. No schema, no CLI,
+no data-model impact.

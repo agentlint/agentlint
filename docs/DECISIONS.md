@@ -2057,3 +2057,51 @@ jump (0.36→0.45) was de-risked by the full gate: typecheck clean, 492 tests
 pass, build green.
 
 **Rollback.** Revert the dependency commit; the overrides are additive.
+
+---
+
+## ADR-0039 — Public per-repo score pages + social OG previews
+
+**Date:** 2026-06-17 · **Repo:** agentlint.sh (web) · **PRs:** #47 (dev), #48 (dev→main)
+
+**Problem.** Sharing any agentlint.sh URL produced no social card — the root
+metadata in `app/layout.tsx` referenced `/og.png`, but the file never existed,
+so X/LinkedIn/Slack rendered a bare link. And a scanned repo had no shareable
+public surface beyond the SVG badge.
+
+**Decision.** Two layers.
+
+1. **Static OG cards** for the high-share pages: `public/og.png` (landing),
+   `public/og-pricing.png`, `public/og-leaderboard.png`, with per-route
+   `metadata` (openGraph + twitter `summary_large_image`) on `/pricing` and
+   `/leaderboard`; the root applies elsewhere. Images are produced by a small
+   reusable HyperFrames mini-project kept out of the repo (local tooling) — the
+   shipped artifact is the PNG in `public/`.
+
+2. **Dynamic per-repo OG + a public score page.** New public route
+   `/r/[owner]/[name]` (no auth, `runtime = "nodejs"`, `revalidate = 300`) shows
+   a repo's agent-readiness score with a scan CTA. Its sibling
+   `opengraph-image.tsx` renders a dynamic `next/og` (Satori) card
+   "owner/name · NN/100", color-coded (green ≥80 / amber ≥50 / red <50). Next
+   auto-wires `og:image`/`twitter:image` for the route. Every scanned repo now
+   has a link that unfurls with its live score — turning each scan into
+   distribution.
+
+**Data + privacy.** `lib/repo-score.ts` `getPublicRepoScore(owner,name)` reuses
+the badge route's resolution rule verbatim: resolve project(s) by
+`(repoOwner, repoName)`, take the most recent run with `public = true`, highest
+score wins across orgs. Only public-run scores are ever exposed — consistent
+with the already-public badge, so no new data leaves the tenant boundary. Repos
+with no public run render a neutral "not scanned yet · —/100" state.
+
+**Verification.** typecheck clean, 497 web tests pass, build green, Biome clean.
+Smoke-tested on preview AND prod (Satori only renders at request time, so the
+live route must be hit, not just built): `og.png` / `og-pricing.png` /
+`og-leaderboard.png` and `/r/<owner>/<name>/opengraph-image` all return
+`200 image/png` on agentlint.sh; the dynamic card was visually confirmed.
+
+**Gotcha.** X caches OG per URL — links shared before this deploy may not show a
+card until the cache expires (~days); new shares will. `next/og` images compile
+at build but only execute at runtime, so always smoke the live endpoint.
+
+**Rollback.** Revert the web PRs; routes and `public/*.png` are additive.
